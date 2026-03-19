@@ -60,6 +60,23 @@ export async function fetchLatestOpenPullRequest(owner: string, repo: string) {
   return pulls[0] ?? null;
 }
 
+export async function postPullRequestComment(
+  owner: string,
+  repo: string,
+  prNumber: number,
+  body: string,
+) {
+  await execFileAsync("gh", [
+    "pr",
+    "comment",
+    String(prNumber),
+    "--repo",
+    `${owner}/${repo}`,
+    "--body",
+    body,
+  ]);
+}
+
 export async function fetchPullRequest(
   owner: string,
   repo: string,

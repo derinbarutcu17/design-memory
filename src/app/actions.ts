@@ -3,11 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
-import { analyzeDrift } from "@/lib/audit";
+import { analyzeDrift, generateCheckSummary, generateFixBrief } from "@/lib/audit";
 import { syncReferenceSnapshotFromFigma } from "@/lib/figma/normalize-reference";
 import {
   fetchLatestOpenPullRequest,
   fetchPullRequest,
+  postPullRequestComment,
 } from "@/lib/github";
 import { createProjectSchema, referenceSnapshotSchema } from "@/lib/schema";
 import { sampleReferenceSnapshot } from "@/lib/sample-reference";
@@ -249,5 +250,52 @@ export async function reviewIssueAction(formData: FormData) {
   revalidatePath(`/audits/${auditRunId}`);
   if (auditRun) {
     revalidatePath(`/projects/${auditRun.projectId}`);
+  }
+}
+
+export async function exportGitHubCommentAction(formData: FormData) {
+  const auditRunId = String(formData.get("auditRunId"));
+  const auditRun = getAuditRun(auditRunId);
+
+  if (!auditRun) {
+    throw new Error("Audit run not found.");
+  }
+
+  const details = getProjectDetails(auditRun.projectId);
+  if (!details) {
+    throw new Error("Project not found.");
+  }
+
+  const issues = listIssuesForAuditRun(auditRunId);
+  const reviews = new Map(listReviewsForAuditRun(auditRunId).map((review) => [review.fingerprint, review.status]));
+  const pr = {
+    number: auditRun.prNumber,
+    title: auditRun.prTitle,
+    headSha: auditRun.commitSha,
+    url: auditRun.sourcePrUrl ?? `https://github.com/${details.project.repoOwner}/${details.project.repoName}/pull/${auditRun.prNumber}`,
+    files: [],
+  };
+  const fixBrief = generateFixBrief(pr, issues, reviews);
+  const checkSummary = generateCheckSummary(pr, issues, reviews);
+  const commentBody = [
+    `## Design Memory check`,
+    ``,
+    `Summary`,
+    '```',
+    checkSummary,
+    '```',
+    ``,
+    `Fix brief`,
+    '```',
+    fixBrief,
+    '```',
+  ].join("\n");
+
+  try {
+    await postPullRequestComment(details.project.repoOwner, details.project.repoName, auditRun.prNumber, commentBody);
+    projectMessageRedirect(details.project.id, "success", "Posted summary and Fix brief to GitHub.");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not post to GitHub.";
+    projectMessageRedirect(details.project.id, "error", message);
   }
 }

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { reviewIssueAction } from "@/app/actions";
+import { exportGitHubCommentAction, reviewIssueAction } from "@/app/actions";
 import { generateCheckSummary, generateFixBrief } from "@/lib/audit";
 import { CopyButton } from "@/components/copy-button";
 import { Pill, Stat, Surface } from "@/components/ui";
@@ -80,7 +80,7 @@ export default async function AuditRunPage({
                 : "manually chosen PR"}
             </p>
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-3">
             <Link
               href={`/projects/${projectDetails.project.id}`}
               className="rounded-full border border-white/10 px-4 py-2 text-sm text-slate-200 transition hover:bg-white/5"
@@ -93,6 +93,15 @@ export default async function AuditRunPage({
             >
               Comparison
             </Link>
+            <form action={exportGitHubCommentAction}>
+              <input type="hidden" name="auditRunId" value={auditRun.id} />
+              <button
+                type="submit"
+                className="rounded-full border border-sky-300/30 bg-sky-500/10 px-4 py-2 text-sm text-sky-100 transition hover:bg-sky-500/20"
+              >
+                Post to GitHub
+              </button>
+            </form>
           </div>
         </div>
 
