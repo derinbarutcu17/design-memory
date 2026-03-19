@@ -10,6 +10,7 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-manrope);
   --font-mono: var(--font-plex-mono);
+  --font-display: var(--font-space-grotesk);
 }
 
 * {
