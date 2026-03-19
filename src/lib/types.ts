@@ -114,6 +114,8 @@ export type DriftIssue = {
     | "hardcoded-style"
     | "variant-drift"
     | "missing-state"
+    | "behavior-drift"
+    | "responsive-drift"
     | "component-reuse";
   severity: Severity;
   confidence: number;

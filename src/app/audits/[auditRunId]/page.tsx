@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { reviewIssueAction } from "@/app/actions";
-import { generateFixBrief } from "@/lib/audit";
+import { generateCheckSummary, generateFixBrief } from "@/lib/audit";
 import { CopyButton } from "@/components/copy-button";
 import { Pill, Stat, Surface } from "@/components/ui";
 import {
@@ -60,6 +60,7 @@ export default async function AuditRunPage({
     files: [],
   };
   const fixBrief = generateFixBrief(pseudoPr, issues, reviewMap);
+  const checkSummary = generateCheckSummary(pseudoPr, issues, reviewMap);
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,_#041019,_#020617)] px-6 py-10 text-white">
@@ -149,7 +150,26 @@ export default async function AuditRunPage({
             <textarea
               readOnly
               value={fixBrief}
-              className="mt-6 min-h-[480px] w-full rounded-[28px] border border-white/10 bg-[#020817] px-4 py-4 font-mono text-sm text-slate-200 outline-none"
+              className="mt-6 min-h-[360px] w-full rounded-[28px] border border-white/10 bg-[#020817] px-4 py-4 font-mono text-sm text-slate-200 outline-none"
+            />
+          </Surface>
+
+          <Surface>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.22em] text-slate-400">
+                  PR check summary
+                </p>
+                <h2 className="mt-2 text-2xl font-semibold text-white">
+                  CI-ready output for PR comments or checks
+                </h2>
+              </div>
+              <CopyButton value={checkSummary} />
+            </div>
+            <textarea
+              readOnly
+              value={checkSummary}
+              className="mt-6 min-h-[220px] w-full rounded-[28px] border border-white/10 bg-[#020817] px-4 py-4 font-mono text-sm text-slate-200 outline-none"
             />
           </Surface>
 

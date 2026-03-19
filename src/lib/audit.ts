@@ -133,6 +133,41 @@ function hasStyleSignals(text: string) {
   return /className|style=\{\{|bg-|text-|border-|rounded-|px-|py-|shadow-|ring-/.test(text);
 }
 
+function detectStateSignals(text: string) {
+  return uniqueStrings([
+    ...(text.match(/(?:^|[^a-z])(hover|focus-visible|focus|disabled|active|pressed|selected|loading):/g) ?? []).map((match) =>
+      match.replace(/[^a-z-]/g, "").replace(/:$/, ""),
+    ),
+    ...(text.match(/aria-disabled/g) ?? []),
+    ...(text.match(/data-\[state=[^\]]+\]/g) ?? []),
+  ]);
+}
+
+function normalizeStateSignal(name: string) {
+  const normalized = normalizeForMatch(name);
+  if (normalized.includes("hover")) return "hover";
+  if (normalized.includes("focusvisible") || normalized.includes("focus")) return "focus";
+  if (normalized.includes("disabled")) return "disabled";
+  if (normalized.includes("pressed") || normalized.includes("active")) return "active";
+  if (normalized.includes("selected")) return "selected";
+  if (normalized.includes("loading")) return "loading";
+  return "";
+}
+
+function detectResponsiveSignals(text: string) {
+  return uniqueStrings([
+    ...(text.match(/(?:^|[^a-z])(sm|md|lg|xl|2xl):/g) ?? []).map((match) =>
+      match.replace(/[^a-z0-9]/g, ""),
+    ),
+    ...(text.match(/container(?![a-z-])/g) ?? []),
+    ...(text.match(/max-w-|min-w-|w-full|grid-cols-|basis-|gap-|flex-wrap/g) ?? []),
+  ]);
+}
+
+function hasBreakpointSpecificClasses(text: string) {
+  return /(?:^|[^a-z])(sm|md|lg|xl|2xl):/.test(text);
+}
+
 function severityRank(severity: DriftIssue["severity"]) {
   return severity === "high" ? 0 : severity === "medium" ? 1 : 2;
 }
@@ -239,6 +274,39 @@ export function generateFixBrief(
   return sections.join("\n");
 }
 
+export function generateCheckSummary(
+  pr: PullRequestDetails,
+  issues: DriftIssue[],
+  reviews: Map<string, ReviewStatus>,
+) {
+  const activeIssues = issues.filter((issue) => {
+    const status = reviews.get(issue.fingerprint);
+    return status !== "intentional" && status !== "ignore";
+  });
+  const sortedIssues = [...activeIssues].sort((a, b) => {
+    const severityDiff = severityRank(a.severity) - severityRank(b.severity);
+    if (severityDiff !== 0) return severityDiff;
+    return b.confidence - a.confidence;
+  });
+  const counts = sortedIssues.reduce<Record<string, number>>((acc, issue) => {
+    acc[issue.issueType] = (acc[issue.issueType] ?? 0) + 1;
+    return acc;
+  }, {});
+  const topFiles = [...new Set(sortedIssues.map((issue) => issue.filePath))].slice(0, 5);
+  const topIssues = sortedIssues.slice(0, 5).map((issue) => `- ${issue.componentName}: ${issue.suggestedAction}`);
+
+  return [
+    `Design Memory check`,
+    `PR #${pr.number}: ${pr.title}`,
+    `Active issues: ${sortedIssues.length}`,
+    `High: ${sortedIssues.filter((issue) => issue.severity === "high").length} | Medium: ${sortedIssues.filter((issue) => issue.severity === "medium").length} | Low: ${sortedIssues.filter((issue) => issue.severity === "low").length}`,
+    `Issue types: ${Object.entries(counts).map(([type, count]) => `${type}=${count}`).join(", ") || "none"}`,
+    `Top files: ${topFiles.length ? topFiles.join(", ") : "none"}`,
+    `Top actions:`,
+    topIssues.length ? topIssues.join("\n") : `- No active issues.`,
+  ].join("\n");
+}
+
 export function analyzeDrift(
   auditRunId: string,
   snapshot: ReferenceSnapshot,
@@ -336,6 +404,58 @@ export function analyzeDrift(
         );
       }
 
+      const stateSignals = detectStateSignals(text);
+      const expectedStateSignals = uniqueStrings(
+        (component.states ?? []).map((state) => normalizeStateSignal(state.name)).filter(Boolean),
+      );
+      const missingBehaviorSignals = expectedStateSignals.filter(
+        (signal) => !stateSignals.includes(signal),
+      );
+
+      if (missingBehaviorSignals.length > 0) {
+        issues.push(
+          createIssue(
+            auditRunId,
+            component.name,
+            file.filename,
+            "behavior-drift",
+            "medium",
+            0.72,
+            `interaction states ${expectedStateSignals.join(", ")}`,
+            `missing interaction markers for ${missingBehaviorSignals.join(", ")}`,
+            "Add the hover, focus, disabled, active, or selected branches that the design system expects.",
+            collectEvidence(text, missingBehaviorSignals),
+          ),
+        );
+      }
+
+      const responsiveSignals = detectResponsiveSignals(text);
+      const looksResponsive =
+        /(layout|page|card|section|header|footer|sidebar|nav|menu|modal|dialog|drawer|hero|grid)/i.test(
+          component.name,
+        ) || /responsive/i.test(component.summary ?? "");
+      if (
+        looksResponsive &&
+        /flex|grid|w-full|max-w-|min-w-|basis-|gap-/.test(text) &&
+        !hasBreakpointSpecificClasses(text) &&
+        responsiveSignals.length > 0
+      ) {
+        issues.push(
+          createIssue(
+            auditRunId,
+            component.name,
+            file.filename,
+            "responsive-drift",
+            "low",
+            0.66,
+            "breakpoint-aware layout handling",
+            `only base layout signals were found: ${responsiveSignals.slice(0, 5).join(", ")}`,
+            "Add breakpoint-specific classes or container rules so the layout adapts at different widths.",
+            collectEvidence(text, responsiveSignals),
+          ),
+        );
+      }
+
       if (component.variants?.length) {
         const allowedVariants = component.variants.map((variant) => variant.name);
         const detectedVariants = extractLikelyVariants(text);
@@ -388,26 +508,59 @@ export function analyzeDrift(
         );
       }
 
-      if (
-        component.name === "Button" &&
-        text.includes("<button") &&
-        !text.includes("import { Button") &&
-        !text.includes("<Button")
-      ) {
-        issues.push(
-          createIssue(
-            auditRunId,
-            component.name,
-            file.filename,
-            "component-reuse",
-            "low",
-            0.49,
-            "shared Button component usage",
-            "raw <button> markup detected in a file that appears to touch Button behavior",
-            "Prefer the shared Button primitive unless this is a documented exception.",
-            collectEvidence(text, ["<button"]),
-          ),
-        );
+      const sharedPrimitiveRules = [
+        {
+          matches: /button/i,
+          rawPattern: "<button",
+          importPattern: "import { Button",
+          componentPattern: "<Button",
+          expected: "shared Button component usage",
+          found: "raw <button> markup detected in a file that appears to touch Button behavior",
+          action: "Prefer the shared Button primitive unless this is a documented exception.",
+        },
+        {
+          matches: /input/i,
+          rawPattern: "<input",
+          importPattern: "import { Input",
+          componentPattern: "<Input",
+          expected: "shared Input component usage",
+          found: "raw <input> markup detected in a file that appears to touch Input behavior",
+          action: "Prefer the shared Input primitive unless this is a documented exception.",
+        },
+        {
+          matches: /textarea/i,
+          rawPattern: "<textarea",
+          importPattern: "import { Textarea",
+          componentPattern: "<Textarea",
+          expected: "shared Textarea component usage",
+          found: "raw <textarea> markup detected in a file that appears to touch Textarea behavior",
+          action: "Prefer the shared Textarea primitive unless this is a documented exception.",
+        },
+      ];
+
+      for (const rule of sharedPrimitiveRules) {
+        if (
+          rule.matches.test(component.name) &&
+          text.includes(rule.rawPattern) &&
+          !text.includes(rule.importPattern) &&
+          !text.includes(rule.componentPattern)
+        ) {
+          issues.push(
+            createIssue(
+              auditRunId,
+              component.name,
+              file.filename,
+              "component-reuse",
+              "low",
+              0.49,
+              rule.expected,
+              rule.found,
+              rule.action,
+              collectEvidence(text, [rule.rawPattern]),
+            ),
+          );
+          break;
+        }
       }
     }
   }
