@@ -1,4 +1,5 @@
 import type { PullRequestDetails, PullRequestFile, PullRequestSummary } from "@/lib/types";
+import { getSecureCredential, getSecureCredentialSource } from "@/lib/secure-credentials";
 
 const GITHUB_API_BASE = "https://api.github.com";
 const GITHUB_API_VERSION = "2022-11-28";
@@ -19,16 +20,24 @@ class GitHubApiError extends Error {
 }
 
 function getGitHubToken(required = false) {
-  const token = process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? process.env.GITHUB_PAT;
+  const token =
+    getSecureCredential("github_token") ??
+    process.env.GITHUB_TOKEN ??
+    process.env.GH_TOKEN ??
+    process.env.GITHUB_PAT;
 
   if (!token && required) {
     throw new GitHubApiError(
-      "Missing GitHub token. Set GITHUB_TOKEN, GH_TOKEN, or GITHUB_PAT in the environment.",
+      "Missing GitHub token. Save it in the app settings or set GITHUB_TOKEN, GH_TOKEN, or GITHUB_PAT.",
       401,
     );
   }
 
   return token;
+}
+
+export function hasGitHubAccessToken() {
+  return getSecureCredentialSource("github_token") !== "missing";
 }
 
 async function githubRequest<T>(pathname: string, init?: RequestInit, requiredToken = false) {

@@ -10,7 +10,8 @@ import {
   updateProjectAction,
 } from "@/app/actions";
 import { Surface } from "@/components/ui";
-import { listOpenPullRequests } from "@/lib/github";
+import { hasGitHubAccessToken, listOpenPullRequests } from "@/lib/github";
+import { hasFigmaAccessToken } from "@/lib/figma/client";
 import { sampleReferenceSnapshot } from "@/lib/sample-reference";
 import { getProjectDetails } from "@/lib/store";
 import { formatDate, prettyJson } from "@/lib/utils";
@@ -27,7 +28,8 @@ export default async function ProjectPage({
   const { projectId } = await params;
   const resolvedSearchParams = searchParams ? await searchParams : undefined;
   const details = getProjectDetails(projectId);
-  const hasFigmaToken = Boolean(process.env.FIGMA_ACCESS_TOKEN);
+  const hasFigmaToken = hasFigmaAccessToken();
+  const hasGitHubToken = hasGitHubAccessToken();
   let openPullRequests: Awaited<ReturnType<typeof listOpenPullRequests>> = [];
 
   if (details) {
@@ -138,8 +140,13 @@ export default async function ProjectPage({
                   </p>
                   <p className="mt-1 text-sm text-slate-500">
                     {hasFigmaToken
-                      ? "FIGMA_ACCESS_TOKEN detected. Ready for live sync."
-                      : "FIGMA_ACCESS_TOKEN missing. Add it before running live Figma sync."}
+                      ? "Figma token ready."
+                      : "Figma token missing. Save it in Auth settings or set FIGMA_ACCESS_TOKEN."}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    {hasGitHubToken
+                      ? "GitHub token ready."
+                      : "GitHub token missing. Save it in Auth settings or set GITHUB_TOKEN / GH_TOKEN / GITHUB_PAT."}
                   </p>
                   <p className="mt-1 text-sm text-slate-500">
                     Parsed file key <span className="font-mono">{details.project.figmaFileKey}</span>

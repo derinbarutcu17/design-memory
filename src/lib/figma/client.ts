@@ -1,3 +1,5 @@
+import { getSecureCredential, getSecureCredentialSource } from "@/lib/secure-credentials";
+
 const FIGMA_API_BASE = "https://api.figma.com/v1";
 
 export class FigmaSyncError extends Error {
@@ -13,15 +15,19 @@ export class FigmaSyncError extends Error {
 }
 
 function getFigmaAccessToken() {
-  const token = process.env.FIGMA_ACCESS_TOKEN;
+  const token = getSecureCredential("figma_access_token") ?? process.env.FIGMA_ACCESS_TOKEN;
 
   if (!token) {
     throw new FigmaSyncError(
-      "Missing FIGMA_ACCESS_TOKEN. Add it to your environment before syncing from Figma.",
+      "Missing Figma token. Save it in the app settings or add FIGMA_ACCESS_TOKEN to your environment.",
     );
   }
 
   return token;
+}
+
+export function hasFigmaAccessToken() {
+  return getSecureCredentialSource("figma_access_token") !== "missing";
 }
 
 export async function figmaGet<T>(pathname: string) {

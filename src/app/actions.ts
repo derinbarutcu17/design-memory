@@ -27,6 +27,7 @@ import {
   upsertIssueReview,
   updateProject,
 } from "@/lib/store";
+import { setSecureCredential } from "@/lib/secure-credentials";
 import type { ReviewStatus } from "@/lib/types";
 import { makeId, parseFigmaUrl, parseGitHubRepoUrl } from "@/lib/utils";
 
@@ -86,6 +87,27 @@ export async function updateProjectAction(formData: FormData) {
   } catch (error) {
     const message = error instanceof Error ? error.message : "Connection update failed.";
     projectMessageRedirect(projectId, "error", message);
+  }
+}
+
+export async function saveAuthSettingsAction(formData: FormData) {
+  try {
+    const figmaToken = String(formData.get("figmaToken") ?? "").trim();
+    const githubToken = String(formData.get("githubToken") ?? "").trim();
+
+    if (figmaToken) {
+      setSecureCredential("figma_access_token", figmaToken);
+    }
+
+    if (githubToken) {
+      setSecureCredential("github_token", githubToken);
+    }
+
+    revalidatePath("/");
+    redirect("/?status=success&message=Auth%20settings%20saved%20locally.");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Could not save auth settings.";
+    homeMessageRedirect("error", message);
   }
 }
 

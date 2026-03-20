@@ -1,8 +1,9 @@
 import Link from "next/link";
 
-import { createProjectAction } from "@/app/actions";
+import { createProjectAction, saveAuthSettingsAction } from "@/app/actions";
 import { listAuditRuns, listProjects } from "@/lib/store";
 import { formatDate } from "@/lib/utils";
+import { getSecureCredentialSource } from "@/lib/secure-credentials";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,8 @@ export default async function Home({
   const auditRuns = projects.flatMap((project) =>
     listAuditRuns(project.id).slice(0, 3).map((run) => ({ project, run })),
   );
+  const figmaTokenSource = getSecureCredentialSource("figma_access_token");
+  const githubTokenSource = getSecureCredentialSource("github_token");
 
   return (
     <main className="min-h-screen bg-[#0c0e12] text-slate-100">
@@ -81,6 +84,13 @@ export default async function Home({
           >
             <span className="text-base">●</span>
             Audit Runs
+          </a>
+          <a
+            href="#auth"
+            className="flex items-center gap-3 rounded-lg px-4 py-2.5 font-medium text-slate-400 transition-colors hover:bg-white/5 hover:text-slate-100"
+          >
+            <span className="text-base">●</span>
+            Auth
           </a>
           <a
             href="#create"
@@ -247,20 +257,71 @@ export default async function Home({
             </div>
 
             <div className="col-span-12 lg:col-span-4">
-              <div
-                id="create"
-                className="sticky top-24 space-y-8 rounded-xl border border-white/[0.06] bg-[#16191d] p-8"
-              >
-                <div className="space-y-1">
-                  <h3 className="font-[family:var(--font-display)] text-xl font-semibold text-slate-50">
-                    Create Project
-                  </h3>
-                  <p className="text-xs font-light text-slate-500">
-                    Connect your design reference and implementation repo.
-                  </p>
-                </div>
+              <div className="sticky top-24 space-y-8 rounded-xl border border-white/[0.06] bg-[#16191d] p-8">
+                <section id="auth" className="space-y-4 rounded-2xl border border-white/[0.06] bg-[#111419] p-5">
+                  <div className="space-y-1">
+                    <h3 className="font-[family:var(--font-display)] text-xl font-semibold text-slate-50">
+                      Auth settings
+                    </h3>
+                    <p className="text-xs font-light text-slate-500">
+                      Save Figma and GitHub tokens locally so the app can run without terminal setup.
+                    </p>
+                  </div>
 
-                <form action={createProjectAction} className="space-y-6">
+                  <form action={saveAuthSettingsAction} className="space-y-4">
+                    <label className="block space-y-2">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                        Figma token
+                      </span>
+                      <input
+                        name="figmaToken"
+                        type="password"
+                        autoComplete="off"
+                        placeholder={figmaTokenSource === "stored" ? "Saved locally" : "Paste your Figma token"}
+                        className="w-full rounded-lg border border-white/[0.06] bg-[#1e2124]/50 px-4 py-3 text-sm text-slate-100 outline-none transition-all focus:border-[#89ceff]/40 focus:ring-1 focus:ring-[#89ceff]/20"
+                      />
+                    </label>
+                    <label className="block space-y-2">
+                      <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                        GitHub token
+                      </span>
+                      <input
+                        name="githubToken"
+                        type="password"
+                        autoComplete="off"
+                        placeholder={githubTokenSource === "stored" ? "Saved locally" : "Paste your GitHub token"}
+                        className="w-full rounded-lg border border-white/[0.06] bg-[#1e2124]/50 px-4 py-3 text-sm text-slate-100 outline-none transition-all focus:border-[#89ceff]/40 focus:ring-1 focus:ring-[#89ceff]/20"
+                      />
+                    </label>
+                    <button
+                      type="submit"
+                      className="w-full rounded-lg bg-[#89ceff] py-3.5 text-xs font-bold uppercase tracking-[0.18em] text-[#001e2f] transition-all hover:-translate-y-0.5 hover:bg-[#bce4ff]"
+                    >
+                      Save tokens locally
+                    </button>
+                  </form>
+
+                  <div className="space-y-2 text-xs text-slate-500">
+                    <p>
+                      Figma token: {figmaTokenSource === "stored" ? "stored locally" : figmaTokenSource === "env" ? "env fallback" : "missing"}
+                    </p>
+                    <p>
+                      GitHub token: {githubTokenSource === "stored" ? "stored locally" : githubTokenSource === "env" ? "env fallback" : "missing"}
+                    </p>
+                  </div>
+                </section>
+
+                <div id="create" className="space-y-8 rounded-xl border border-white/[0.06] bg-[#16191d] p-8">
+                  <div className="space-y-1">
+                    <h3 className="font-[family:var(--font-display)] text-xl font-semibold text-slate-50">
+                      Create Project
+                    </h3>
+                    <p className="text-xs font-light text-slate-500">
+                      Connect your design reference and implementation repo.
+                    </p>
+                  </div>
+
+                  <form action={createProjectAction} className="space-y-6">
                   <div className="space-y-2">
                     <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
                       Project Name
@@ -314,6 +375,7 @@ export default async function Home({
           </div>
         </div>
       </div>
+    </div>
     </main>
   );
 }
