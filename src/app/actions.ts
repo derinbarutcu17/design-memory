@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 
 import { analyzeDrift, generateCheckSummary, generateFixBrief } from "@/lib/audit";
+import { FigmaSyncError } from "@/lib/figma/client";
 import { syncReferenceSnapshotFromFigma } from "@/lib/figma/normalize-reference";
 import {
   fetchLatestOpenPullRequest,
@@ -18,6 +19,7 @@ import {
   createProject,
   createReferenceSnapshot,
   getAuditRun,
+  getLatestSnapshotBySourceType,
   getProjectDetails,
   listAuditRuns,
   listIssuesForAuditRun,
@@ -131,6 +133,28 @@ export async function syncFigmaReferenceAction(formData: FormData) {
   }
 }
 
+async function resolveAuditReferenceSnapshot(projectId: string, figmaFileKey: string) {
+  try {
+    const snapshot = await syncReferenceSnapshotFromFigma(figmaFileKey);
+    return {
+      snapshotRecord: createReferenceSnapshot(projectId, snapshot),
+      referenceSyncMode: "live" as const,
+    };
+  } catch (error) {
+    if (error instanceof FigmaSyncError && error.status === 429) {
+      const cachedSnapshot = getLatestSnapshotBySourceType(projectId, "figma-api");
+      if (cachedSnapshot) {
+        return {
+          snapshotRecord: cachedSnapshot,
+          referenceSyncMode: "cached" as const,
+        };
+      }
+    }
+
+    throw error;
+  }
+}
+
 async function runAuditForPullRequest(
   projectId: string,
   prNumber: number,
@@ -142,8 +166,10 @@ async function runAuditForPullRequest(
     throw new Error("Project not found.");
   }
 
-  const snapshot = await syncReferenceSnapshotFromFigma(details.project.figmaFileKey);
-  const latestSnapshot = createReferenceSnapshot(projectId, snapshot);
+  const latestSnapshotResult = await resolveAuditReferenceSnapshot(
+    projectId,
+    details.project.figmaFileKey,
+  );
   const pr = await fetchPullRequest(details.project.repoOwner, details.project.repoName, prNumber);
 
   if (pr.files.length === 0) {
@@ -160,7 +186,7 @@ async function runAuditForPullRequest(
     : [];
 
   const pendingRunId = makeId("run");
-  const analysis = analyzeDrift(pendingRunId, latestSnapshot.snapshot, pr, {
+  const analysis = analyzeDrift(pendingRunId, latestSnapshotResult.snapshotRecord.snapshot, pr, {
     issues: previousIssues,
     reviews: previousReviews,
     runId: previousRun?.id,
@@ -174,7 +200,9 @@ async function runAuditForPullRequest(
   const run = createAuditRun(
     {
       projectId,
-      referenceSnapshotId: latestSnapshot.id,
+      referenceSnapshotId: latestSnapshotResult.snapshotRecord.id,
+      referenceSyncMode: latestSnapshotResult.referenceSyncMode,
+      referenceSnapshotSourceType: latestSnapshotResult.snapshotRecord.sourceType,
       prNumber,
       prTitle: pr.title,
       commitSha: pr.headSha,

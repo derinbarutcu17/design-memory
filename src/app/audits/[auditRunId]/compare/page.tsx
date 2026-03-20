@@ -37,6 +37,9 @@ export default async function AuditComparePage({
                 ? "Latest PR auto-check"
                 : "Manual PR selection"}
             </p>
+            <p className="mt-2 text-sm text-slate-400">
+              Reference source: {auditRun.referenceSnapshotSourceType ?? "unknown"} · {auditRun.referenceSyncMode === "cached" ? "cached fallback" : auditRun.referenceSyncMode === "live" ? "live sync" : "unknown mode"}
+            </p>
           </div>
           <Link
             href={`/audits/${auditRun.id}`}

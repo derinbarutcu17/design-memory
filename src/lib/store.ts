@@ -166,10 +166,47 @@ export function getLatestSnapshot(projectId: string): ReferenceSnapshotRecord | 
   };
 }
 
+export function getLatestSnapshotBySourceType(
+  projectId: string,
+  sourceType: string,
+): ReferenceSnapshotRecord | null {
+  const row = db
+    .prepare(
+      `SELECT id, project_id, version_label, source_type, snapshot_json, created_at
+       FROM reference_snapshots
+       WHERE project_id = ? AND source_type = ?
+       ORDER BY created_at DESC
+       LIMIT 1`,
+    )
+    .get(projectId, sourceType) as
+    | {
+        id: string;
+        project_id: string;
+        version_label: string;
+        source_type: string;
+        snapshot_json: string;
+        created_at: string;
+      }
+    | undefined;
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    versionLabel: row.version_label,
+    sourceType: row.source_type,
+    snapshot: JSON.parse(row.snapshot_json) as ReferenceSnapshot,
+    createdAt: row.created_at,
+  };
+}
+
 export function listAuditRuns(projectId: string): AuditRun[] {
   const rows = db
     .prepare(
-      `SELECT id, project_id, reference_snapshot_id, pr_number, pr_title, commit_sha, source_pr_url, source_pr_updated_at, pr_selection_mode, status, summary_json, comparison_json, created_at
+      `SELECT id, project_id, reference_snapshot_id, reference_sync_mode, reference_snapshot_source_type, pr_number, pr_title, commit_sha, source_pr_url, source_pr_updated_at, pr_selection_mode, status, summary_json, comparison_json, created_at
        FROM audit_runs
        WHERE project_id = ?
        ORDER BY created_at DESC`,
@@ -178,6 +215,8 @@ export function listAuditRuns(projectId: string): AuditRun[] {
     id: string;
     project_id: string;
     reference_snapshot_id: string;
+    reference_sync_mode: "live" | "cached" | null;
+    reference_snapshot_source_type: string | null;
     pr_number: number;
     pr_title: string;
     commit_sha: string;
@@ -194,6 +233,8 @@ export function listAuditRuns(projectId: string): AuditRun[] {
     id: row.id,
     projectId: row.project_id,
     referenceSnapshotId: row.reference_snapshot_id,
+    referenceSyncMode: row.reference_sync_mode ?? undefined,
+    referenceSnapshotSourceType: row.reference_snapshot_source_type ?? undefined,
     prNumber: row.pr_number,
     prTitle: row.pr_title,
     commitSha: row.commit_sha,
@@ -214,7 +255,7 @@ export function getAuditRun(auditRunId: string) {
 function listAllAuditRuns() {
   const rows = db
     .prepare(
-      `SELECT id, project_id, reference_snapshot_id, pr_number, pr_title, commit_sha, source_pr_url, source_pr_updated_at, pr_selection_mode, status, summary_json, comparison_json, created_at
+      `SELECT id, project_id, reference_snapshot_id, reference_sync_mode, reference_snapshot_source_type, pr_number, pr_title, commit_sha, source_pr_url, source_pr_updated_at, pr_selection_mode, status, summary_json, comparison_json, created_at
        FROM audit_runs
        ORDER BY created_at DESC`,
     )
@@ -222,6 +263,8 @@ function listAllAuditRuns() {
     id: string;
     project_id: string;
     reference_snapshot_id: string;
+    reference_sync_mode: "live" | "cached" | null;
+    reference_snapshot_source_type: string | null;
     pr_number: number;
     pr_title: string;
     commit_sha: string;
@@ -238,6 +281,8 @@ function listAllAuditRuns() {
     id: row.id,
     projectId: row.project_id,
     referenceSnapshotId: row.reference_snapshot_id,
+    referenceSyncMode: row.reference_sync_mode ?? undefined,
+    referenceSnapshotSourceType: row.reference_snapshot_source_type ?? undefined,
     prNumber: row.pr_number,
     prTitle: row.pr_title,
     commitSha: row.commit_sha,
@@ -263,8 +308,8 @@ export function createAuditRun(
   };
 
   const insertAudit = db.prepare(
-    `INSERT INTO audit_runs (id, project_id, reference_snapshot_id, pr_number, pr_title, commit_sha, source_pr_url, source_pr_updated_at, pr_selection_mode, status, summary_json, comparison_json, created_at)
-     VALUES (@id, @projectId, @referenceSnapshotId, @prNumber, @prTitle, @commitSha, @sourcePrUrl, @sourcePrUpdatedAt, @prSelectionMode, @status, @summaryJson, @comparisonJson, @createdAt)`,
+    `INSERT INTO audit_runs (id, project_id, reference_snapshot_id, reference_sync_mode, reference_snapshot_source_type, pr_number, pr_title, commit_sha, source_pr_url, source_pr_updated_at, pr_selection_mode, status, summary_json, comparison_json, created_at)
+     VALUES (@id, @projectId, @referenceSnapshotId, @referenceSyncMode, @referenceSnapshotSourceType, @prNumber, @prTitle, @commitSha, @sourcePrUrl, @sourcePrUpdatedAt, @prSelectionMode, @status, @summaryJson, @comparisonJson, @createdAt)`,
   );
 
   const insertIssue = db.prepare(

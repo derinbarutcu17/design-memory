@@ -1,4 +1,9 @@
-import type { FigmaFileBundle, FigmaNode } from "@/lib/figma/fetch-file";
+import type {
+  FigmaComponentMeta,
+  FigmaComponentSetMeta,
+  FigmaFileBundle,
+  FigmaNode,
+} from "@/lib/figma/fetch-file";
 import type { ComponentReference, ReferenceToken } from "@/lib/types";
 import { generateNameCandidates, toKebabCase, uniqueStrings } from "@/lib/utils";
 
@@ -139,6 +144,70 @@ export function extractComponentReferences(
 
   const references = new Map<string, ComponentReference>();
 
+  const mergeReference = (key: string, next: ComponentReference) => {
+    const existing = references.get(key);
+    references.set(key, {
+      ...next,
+      codeMatches: uniqueStrings([...(existing?.codeMatches ?? []), ...(next.codeMatches ?? [])]),
+      aliases: uniqueStrings([...(existing?.aliases ?? []), ...(next.aliases ?? [])]),
+      tokensUsed: uniqueStrings([...(existing?.tokensUsed ?? []), ...(next.tokensUsed ?? [])]),
+      requiredPatterns: uniqueStrings([
+        ...(existing?.requiredPatterns ?? []),
+        ...(next.requiredPatterns ?? []),
+      ]),
+      variants: uniqueStrings([...(existing?.variants ?? []), ...(next.variants ?? [])].map((item) => item.name)).map((name) => ({
+        name,
+        requiredPatterns: [],
+      })),
+      states: uniqueStrings([...(existing?.states ?? []), ...(next.states ?? [])].map((item) => item.name)).map((name) => ({
+        name,
+        requiredPatterns: [],
+      })),
+    });
+  };
+
+  const componentVariantsBySetId = new Map<string, FigmaComponentMeta[]>();
+  for (const meta of Object.values(bundle.file.components ?? {})) {
+    if (!meta.componentSetId) {
+      continue;
+    }
+    const existing = componentVariantsBySetId.get(meta.componentSetId) ?? [];
+    existing.push(meta);
+    componentVariantsBySetId.set(meta.componentSetId, existing);
+  }
+
+  const addMetadataReference = (
+    meta: Pick<FigmaComponentMeta | FigmaComponentSetMeta, "name" | "node_id">,
+    variantSources: string[] = [],
+  ) => {
+    const baseName = inferBaseName(meta.name);
+    const key = toKebabCase(baseName);
+    const values = variantSources.flatMap((value) => inferVariantValues(value));
+    const states = uniqueStrings(
+      values
+        .map((entry) => entry.value.toLowerCase())
+        .filter((value) => STATE_WORDS.includes(value)),
+    ).map((name) => ({ name, requiredPatterns: [] }));
+    const variants = uniqueStrings(
+      values
+        .map((entry) => entry.value)
+        .filter((value) => !STATE_WORDS.includes(value.toLowerCase())),
+    ).map((name) => ({ name, requiredPatterns: [] }));
+
+    mergeReference(key, {
+      name: baseName,
+      codeMatches: buildComponentAliases(baseName),
+      aliases: uniqueStrings([meta.name, ...buildComponentAliases(meta.name)]),
+      summary: `Synced from Figma metadata for ${meta.name}.`,
+      variants,
+      states,
+      tokensUsed: [],
+      requiredPatterns: [],
+      disallowedPatterns: ["bg-[#", "text-[#", "border-[#", "style={{"],
+      sourceNodeId: meta.node_id,
+    });
+  };
+
   const addReference = (node: FigmaNode, nodeName: string) => {
     const baseName = inferBaseName(nodeName);
     const key = toKebabCase(baseName);
@@ -176,37 +245,28 @@ export function extractComponentReferences(
       sourceNodeId: node.id,
     };
 
-    const existing = references.get(key);
-    references.set(key, {
-      ...next,
-      codeMatches: uniqueStrings([...(existing?.codeMatches ?? []), ...(next.codeMatches ?? [])]),
-      aliases: uniqueStrings([...(existing?.aliases ?? []), ...(next.aliases ?? [])]),
-      tokensUsed: uniqueStrings([...(existing?.tokensUsed ?? []), ...tokensUsed]),
-      requiredPatterns: uniqueStrings([
-        ...(existing?.requiredPatterns ?? []),
-        ...(next.requiredPatterns ?? []),
-      ]),
-      variants: uniqueStrings([...(existing?.variants ?? []), ...(next.variants ?? [])].map((item) => item.name)).map((name) => ({
-        name,
-        requiredPatterns: [],
-      })),
-      states: uniqueStrings([...(existing?.states ?? []), ...(next.states ?? [])].map((item) => item.name)).map((name) => ({
-        name,
-        requiredPatterns: [],
-      })),
-    });
+    mergeReference(key, next);
   };
 
   for (const meta of Object.values(bundle.file.componentSets ?? {})) {
     const node = meta.node_id ? nodeIndex.get(meta.node_id) : undefined;
     if (node) {
       addReference(node, meta.name);
+      continue;
     }
+
+    addMetadataReference(
+      meta,
+      (componentVariantsBySetId.get(meta.node_id ?? "") ?? []).map((component) => component.name),
+    );
   }
 
   for (const meta of Object.values(bundle.file.components ?? {})) {
     const node = meta.node_id ? nodeIndex.get(meta.node_id) : undefined;
     if (!node) {
+      if (!meta.componentSetId) {
+        addMetadataReference(meta);
+      }
       continue;
     }
 

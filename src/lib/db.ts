@@ -35,6 +35,8 @@ function ensureDatabase() {
       id TEXT PRIMARY KEY,
       project_id TEXT NOT NULL,
       reference_snapshot_id TEXT NOT NULL,
+      reference_sync_mode TEXT,
+      reference_snapshot_source_type TEXT,
       pr_number INTEGER NOT NULL,
       pr_title TEXT NOT NULL,
       commit_sha TEXT NOT NULL,
@@ -85,6 +87,8 @@ function ensureDatabase() {
 
   ensureColumn("projects", "figma_url", "TEXT");
   ensureColumn("projects", "repo_url", "TEXT");
+  ensureColumn("audit_runs", "reference_sync_mode", "TEXT");
+  ensureColumn("audit_runs", "reference_snapshot_source_type", "TEXT");
   ensureColumn("audit_runs", "source_pr_url", "TEXT");
   ensureColumn("audit_runs", "source_pr_updated_at", "TEXT");
   ensureColumn("audit_runs", "pr_selection_mode", "TEXT");

@@ -61,6 +61,12 @@ export default async function AuditRunPage({
   };
   const fixBrief = generateFixBrief(pseudoPr, issues, reviewMap);
   const checkSummary = generateCheckSummary(pseudoPr, issues, reviewMap);
+  const referenceSyncLabel =
+    auditRun.referenceSyncMode === "cached"
+      ? "cached Figma snapshot"
+      : auditRun.referenceSyncMode === "live"
+        ? "live Figma sync"
+        : "unknown sync mode";
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,_#041019,_#020617)] px-6 py-10 text-white">
@@ -78,6 +84,9 @@ export default async function AuditRunPage({
               {auditRun.prSelectionMode === "auto-latest"
                 ? "auto-selected latest PR"
                 : "manually chosen PR"}
+            </p>
+            <p className="mt-2 text-sm text-slate-400">
+              Reference source: {auditRun.referenceSnapshotSourceType ?? "unknown"} · {referenceSyncLabel}
             </p>
           </div>
           <div className="flex flex-wrap gap-3">

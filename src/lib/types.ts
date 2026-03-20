@@ -87,6 +87,8 @@ export type AuditRun = {
   id: string;
   projectId: string;
   referenceSnapshotId: string;
+  referenceSyncMode?: "live" | "cached";
+  referenceSnapshotSourceType?: string;
   prNumber: number;
   prTitle: string;
   commitSha: string;

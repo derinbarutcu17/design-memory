@@ -394,6 +394,9 @@ export default async function ProjectPage({
                       {run.summary.totalIssues} issues · {run.summary.high} high ·{" "}
                       {run.summary.medium} medium · {run.summary.low} low
                     </p>
+                    <p className="mt-1 text-sm text-slate-500">
+                      Reference: {run.referenceSnapshotSourceType ?? "unknown"} · {run.referenceSyncMode === "cached" ? "cached fallback" : run.referenceSyncMode === "live" ? "live sync" : "unknown mode"}
+                    </p>
                     {run.sourcePrUpdatedAt ? (
                       <p className="mt-1 text-sm text-slate-500">
                         PR updated {formatDate(run.sourcePrUpdatedAt)}
