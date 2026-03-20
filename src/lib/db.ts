@@ -4,103 +4,79 @@ import path from "node:path";
 
 const storageDir = path.join(process.cwd(), "storage");
 const dbPath = path.join(storageDir, "design-memory.db");
+const migrationsDir = path.join(process.cwd(), "migrations");
+
+type MigrationFile = {
+  version: number;
+  filename: string;
+  path: string;
+};
+
+function tableColumns(db: Database.Database, table: string) {
+  return db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>;
+}
+
+function columnExists(db: Database.Database, table: string, column: string) {
+  return tableColumns(db, table).some((entry) => entry.name === column);
+}
+
+function splitSqlStatements(sql: string) {
+  return sql
+    .split(";")
+    .map((statement) => statement.trim())
+    .filter(Boolean);
+}
+
+function runMigrationSql(db: Database.Database, sql: string) {
+  for (const statement of splitSqlStatements(sql)) {
+    const alterMatch = statement.match(/^ALTER\s+TABLE\s+(\w+)\s+ADD\s+COLUMN\s+(\w+)\b/i);
+    if (alterMatch) {
+      const [, table, column] = alterMatch;
+      if (columnExists(db, table, column)) {
+        continue;
+      }
+    }
+
+    db.exec(`${statement};`);
+  }
+}
+
+function listMigrations(): MigrationFile[] {
+  if (!fs.existsSync(migrationsDir)) {
+    return [];
+  }
+
+  return fs
+    .readdirSync(migrationsDir)
+    .filter((filename) => /^\d+_.+\.sql$/.test(filename))
+    .map((filename) => ({
+      filename,
+      version: Number(filename.slice(0, 3)),
+      path: path.join(migrationsDir, filename),
+    }))
+    .sort((left, right) => left.version - right.version);
+}
 
 function ensureDatabase() {
   fs.mkdirSync(storageDir, { recursive: true });
   const db = new Database(dbPath);
   db.pragma("journal_mode = WAL");
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS projects (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      figma_url TEXT,
-      repo_url TEXT,
-      repo_owner TEXT NOT NULL,
-      repo_name TEXT NOT NULL,
-      figma_file_key TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
 
-    CREATE TABLE IF NOT EXISTS reference_snapshots (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      version_label TEXT NOT NULL,
-      source_type TEXT NOT NULL,
-      snapshot_json TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    );
+  const currentVersion = Number(
+    db.pragma("user_version", { simple: true }) ?? 0,
+  );
 
-    CREATE TABLE IF NOT EXISTS audit_runs (
-      id TEXT PRIMARY KEY,
-      project_id TEXT NOT NULL,
-      reference_snapshot_id TEXT NOT NULL,
-      reference_sync_mode TEXT,
-      reference_snapshot_source_type TEXT,
-      pr_number INTEGER NOT NULL,
-      pr_title TEXT NOT NULL,
-      commit_sha TEXT NOT NULL,
-      source_pr_url TEXT,
-      source_pr_updated_at TEXT,
-      pr_selection_mode TEXT,
-      status TEXT NOT NULL,
-      summary_json TEXT NOT NULL,
-      comparison_json TEXT,
-      created_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS drift_issues (
-      id TEXT PRIMARY KEY,
-      audit_run_id TEXT NOT NULL,
-      fingerprint TEXT NOT NULL,
-      component_name TEXT NOT NULL,
-      issue_type TEXT NOT NULL,
-      severity TEXT NOT NULL,
-      confidence REAL NOT NULL,
-      expected TEXT NOT NULL,
-      found TEXT NOT NULL,
-      file_path TEXT NOT NULL,
-      evidence_snippet TEXT NOT NULL,
-      suggested_action TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS issue_reviews (
-      id TEXT PRIMARY KEY,
-      audit_run_id TEXT NOT NULL,
-      fingerprint TEXT NOT NULL,
-      status TEXT NOT NULL,
-      note TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS secure_credentials (
-      name TEXT PRIMARY KEY,
-      iv TEXT NOT NULL,
-      auth_tag TEXT NOT NULL,
-      encrypted_value TEXT NOT NULL,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-  `);
-
-  const ensureColumn = (table: string, column: string, definition: string) => {
-    const columns = db
-      .prepare(`PRAGMA table_info(${table})`)
-      .all() as Array<{ name: string }>;
-
-    if (!columns.some((entry) => entry.name === column)) {
-      db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+  for (const migration of listMigrations()) {
+    if (migration.version <= currentVersion) {
+      continue;
     }
-  };
 
-  ensureColumn("projects", "figma_url", "TEXT");
-  ensureColumn("projects", "repo_url", "TEXT");
-  ensureColumn("audit_runs", "reference_sync_mode", "TEXT");
-  ensureColumn("audit_runs", "reference_snapshot_source_type", "TEXT");
-  ensureColumn("audit_runs", "source_pr_url", "TEXT");
-  ensureColumn("audit_runs", "source_pr_updated_at", "TEXT");
-  ensureColumn("audit_runs", "pr_selection_mode", "TEXT");
+    const sql = fs.readFileSync(migration.path, "utf8");
+    db.transaction(() => {
+      runMigrationSql(db, sql);
+      db.pragma(`user_version = ${migration.version}`);
+    })();
+  }
 
   return db;
 }
