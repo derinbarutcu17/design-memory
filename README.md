@@ -2,19 +2,19 @@
 
 Design Memory is a local-first design-to-code audit tool.
 
-It compares a Figma design reference against a GitHub pull request and points out where the implementation drifted.
+It compares a Figma reference against a GitHub pull request and spots where implementation drifted.
 
-It answers one question fast:
-Is the implementation still matching the design?
+The point is simple:
+keep the code matching the design, and turn the gap into a Fix Brief an agent can act on.
 
-## Workflow
+## What it does
 
-1. Create a project with a Figma URL and a GitHub repo URL.
-2. Sync the design reference from Figma.
-3. Check the latest open PR, or choose one manually.
-4. Review the drift issues and the Fix brief.
-5. Paste the Fix brief into your coding agent.
-6. Re-run the check after fixes.
+- syncs a Figma reference for a project
+- checks the latest PR or a manually chosen PR
+- detects design drift
+- generates an agent-ready Fix Brief
+- supports GitHub PR review and export workflows
+- stays local-first instead of making GitHub or Figma the source of truth
 
 ## What it checks
 
@@ -22,22 +22,33 @@ Is the implementation still matching the design?
 - hardcoded styles
 - variant drift
 - missing states
-- obvious shared component reuse misses
+- broken spacing and layout consistency
+- obvious shared-component reuse misses
 
-## What it stores
+## Workflow
 
-- project links and parsed IDs
-- synced Figma reference snapshots
-- audit runs
-- detected issues
+1. Create a project with a Figma URL and a GitHub repo URL.
+2. Sync the design reference from Figma.
+3. Pick the PR to review.
+4. Review drift issues and the Fix Brief.
+5. Paste the Fix Brief into your coding agent.
+6. Re-run the check after fixes.
+
+## Output
+
+Design Memory gives you:
+
+- a drift report
+- a Fix Brief written for an agent
 - review status for each issue
+- a clean loop for re-checking after code changes
 
 ## Setup
 
 Create `.env.local` in the project root:
 
 ```bash
-FIGMA_ACCESS_TOKEN=your_token_here
+FIGMA_ACCESS_TOKEN=***
 ```
 
 GitHub access comes from your local `gh` login.
@@ -55,18 +66,8 @@ npm install
 npm run dev
 ```
 
-Open the local URL shown in the terminal.
-
-## Running the app
-
-- Use the dashboard to create a project.
-- Add a Figma URL and a GitHub repo URL.
-- Sync from Figma.
-- Run a PR check.
-- Review the Fix brief and drift evidence.
-
 ## Notes
 
 - Figma sync needs a valid access token.
-- Manual JSON import exists as a fallback, not the main path.
-- The app is built to stay local-first and keep GitHub / Figma as connected inputs, not source-of-truth copies.
+- Manual JSON import exists as a fallback.
+- The app is built to stay local-first and keep drift detection fast.
