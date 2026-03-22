@@ -1,101 +1,69 @@
-# Design Memory
+# @derin/design-memory
 
-Design Memory is a local-first design-to-code audit tool.
+Zero-latency headless design enforcer.
 
-It compares a design reference against a GitHub pull request and points out where the implementation drifted.
+## System Architecture
+Pure TypeScript CLI binary. No frontend. No database. Pure logic.
+- **Git Harvester:** Extracts staged changes via `git diff --cached`.
+- **Design Context:** Aggregates ground truth from `design.md`, `.cursorrules`, and Figma tokens.
+- **LLM Engine:** Multi-provider brain (Ollama, LM Studio, OpenAI, Anthropic).
+- **Audit Executioner:** Validates diffs against context and blocks non-compliant commits.
 
-Supported reference providers:
+## Execution Flow
+1. **init:** Installs Git pre-commit hook.
+2. **audit:** Manually triggers design drift analysis.
+3. **ghost:** Injects design enforcement rules into IDE AI instructions.
 
-- Figma
-- Stitch `DESIGN.md`
+## MCP / Skill Integration
+Natively compatible with Model Context Protocol (MCP).
+- **Tool Name:** `design_memory_audit`
+- **Command:** `npx @derin/design-memory audit`
 
-The point is simple:
-keep the code matching the design, and turn the gap into a Fix Brief an agent can act on.
+## JSON Schemas
 
-## What it does
+### Audit Result Schema
 
-- syncs a Figma reference for a project
-- imports and stores Stitch `DESIGN.md` reference snapshots
-- checks the latest PR or a manually chosen PR
-- detects design drift
-- generates an agent-ready Fix Brief
-- supports GitHub PR review and export workflows
-- stays local-first instead of making GitHub or the design provider the source of truth
-
-## What it checks
-
-- token mismatches
-- hardcoded styles
-- variant drift
-- missing states
-- broken spacing and layout consistency
-- obvious shared-component reuse misses
-
-## Workflow
-
-1. Create a project with either a Figma URL or Stitch as the reference provider plus a GitHub repo URL.
-2. Sync the design reference from Figma, or import a Stitch `DESIGN.md`.
-3. Check the latest open PR, or choose one manually.
-4. Review drift issues and the Fix Brief.
-5. Paste the Fix Brief into your coding agent.
-6. Re-run the check after fixes.
-
-## Output
-
-Design Memory gives you:
-
-- a drift report
-- a Fix Brief written for an agent
-- review status for each issue
-- a clean loop for re-checking after code changes
-
-## What it stores
-
-- project links and parsed IDs
-- synced reference snapshots from Figma or Stitch
-- audit runs
-- detected issues
-- review status for each issue
-
-## Setup
-
-Create `.env.local` in the project root if you want Figma-backed projects:
-
-```bash
-FIGMA_ACCESS_TOKEN=your_token_here
+```json
+{
+  "driftDetected": true,
+  "violations": [
+    {
+      "file": "components/Button.tsx",
+      "issue": "Hardcoded hex color does not match design.md token rules."
+    }
+  ]
+}
 ```
 
-GitHub access comes from your saved app token or from `GITHUB_TOKEN`, `GH_TOKEN`, or `GITHUB_PAT`.
+### MCP Tool Input Schema
 
-You can also check your GitHub CLI login:
-
-```bash
-gh auth status
+```json
+{
+  "type": "object",
+  "properties": {
+    "cwd": {
+      "type": "string",
+      "description": "Absolute repository path to audit. Defaults to the current working directory."
+    },
+    "mode": {
+      "type": "string",
+      "enum": ["staged"],
+      "description": "Audit mode. Only staged changes are supported."
+    }
+  },
+  "required": [],
+  "additionalProperties": false
+}
 ```
 
-Install and run:
+## CLI Commands
+- `npx @derin/design-memory init`: Setup the Git hook.
+- `npx @derin/design-memory audit`: Manually check staged files.
+- `npx @derin/design-memory ghost`: Configure IDE AI constraints.
 
-```bash
-npm install
-npm run dev
-```
-
-Open the local URL shown in the terminal.
-
-## Running the app
-
-- Use the dashboard to create a project.
-- Choose `Figma` or `Stitch DESIGN.md` as the reference provider.
-- Add the matching reference details and a GitHub repo URL.
-- For Figma projects, sync from Figma.
-- For Stitch projects, upload or paste `DESIGN.md`.
-- Run a PR check.
-- Review the Fix Brief and drift evidence.
-
-## Notes
-
-- Figma sync needs a valid access token.
-- Stitch projects use stored `DESIGN.md` snapshots during audits.
-- Manual JSON import exists as a fallback, not the main path.
-- The app is built to stay local-first and keep GitHub plus a design reference provider as connected inputs, not source-of-truth copies.
-- Live Stitch SDK and Stitch MCP sync are intentionally deferred; the first Stitch path is `DESIGN.md` import.
+## LLM Integration Instructions
+When asked to verify design or review UI code:
+1. Stage your changes: `git add .`
+2. Execute: `npx @derin/design-memory audit`
+3. If drift is detected, fix the violations before attempting to commit.
+4. Before generating code, always cross-reference `design.md`.

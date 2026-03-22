@@ -1,5 +1,5 @@
-import type { ComponentReference, ReferenceToken } from "@/lib/types";
-import { generateNameCandidates, toKebabCase, uniqueStrings } from "@/lib/utils";
+import type { ComponentReference, ReferenceToken } from "../types";
+import { generateNameCandidates, toKebabCase, uniqueStrings } from "../utils";
 
 type ParsedStitchDesign = {
   overview: string;

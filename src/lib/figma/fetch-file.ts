@@ -1,4 +1,4 @@
-import { figmaGet } from "@/lib/figma/client";
+import { figmaGet } from "./client";
 
 export type FigmaStyleMeta = {
   key?: string;

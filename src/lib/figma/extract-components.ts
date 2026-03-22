@@ -3,9 +3,9 @@ import type {
   FigmaComponentSetMeta,
   FigmaFileBundle,
   FigmaNode,
-} from "@/lib/figma/fetch-file";
-import type { ComponentReference, ReferenceToken } from "@/lib/types";
-import { generateNameCandidates, toKebabCase, uniqueStrings } from "@/lib/utils";
+} from "./fetch-file";
+import type { ComponentReference, ReferenceToken } from "../types";
+import { generateNameCandidates, toKebabCase, uniqueStrings } from "../utils";
 
 const STATE_WORDS = [
   "hover",

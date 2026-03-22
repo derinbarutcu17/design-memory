@@ -1,6 +1,6 @@
-import type { FigmaFileBundle, FigmaNode } from "@/lib/figma/fetch-file";
-import type { ReferenceToken } from "@/lib/types";
-import { generateNameCandidates, toKebabCase, uniqueStrings } from "@/lib/utils";
+import type { FigmaFileBundle, FigmaNode } from "./fetch-file";
+import type { ReferenceToken } from "../types";
+import { generateNameCandidates, toKebabCase, uniqueStrings } from "../utils";
 
 function traverse(node: FigmaNode, visit: (node: FigmaNode) => void) {
   visit(node);

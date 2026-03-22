@@ -1,5 +1,5 @@
-import { parseStitchDesignMarkdown } from "@/lib/stitch/parser";
-import type { ReferenceSnapshot } from "@/lib/types";
+import { parseStitchDesignMarkdown } from "../stitch/parser";
+import type { ReferenceSnapshot } from "../types";
 
 export function normalizeStitchReference(
   markdownContent: string,

@@ -1,0 +1,21 @@
+{
+  "name": "design_memory_audit",
+  "description": "Executes a pre-commit design drift analysis on the current repository's staged files. Blocks commits that violate design.md.",
+  "inputs": {
+    "type": "object",
+    "properties": {
+      "cwd": {
+        "type": "string",
+        "description": "Absolute repository path to audit. Defaults to the current working directory."
+      },
+      "mode": {
+        "type": "string",
+        "enum": ["staged"],
+        "description": "Audit mode. Only staged changes are supported."
+      }
+    },
+    "required": [],
+    "additionalProperties": false
+  },
+  "execution": "npx @derin/design-memory audit"
+}

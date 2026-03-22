@@ -1,0 +1,41 @@
+import fs from 'fs';
+import path from 'path';
+
+export async function installHook() {
+  const cwd = process.cwd();
+  const gitDir = path.join(cwd, '.git');
+  const hooksDir = path.join(gitDir, 'hooks');
+
+  if (!fs.existsSync(gitDir)) {
+    throw new Error('No .git directory found. Run this from your repository root.');
+  }
+
+  if (!fs.existsSync(hooksDir)) {
+    fs.mkdirSync(hooksDir, { recursive: true });
+  }
+
+  const hookPath = path.join(hooksDir, 'pre-commit');
+  const hookContent = `#!/bin/sh
+echo "[Design Memory] Auditing staged files for design drift..."
+npx @derin/design-memory audit
+if [ $? -ne 0 ]; then
+  echo "[Design Memory] ❌ Commit rejected due to design violations."
+  exit 1
+fi
+`;
+
+  if (fs.existsSync(hookPath)) {
+    const existing = fs.readFileSync(hookPath, 'utf-8');
+    if (existing.includes('npx @derin/design-memory audit')) {
+      console.log('[Design Memory] Pre-commit hook already installed.');
+      return;
+    }
+    fs.appendFileSync(hookPath, '\n' + hookContent.replace('#!/bin/sh\n', ''));
+    console.log('[Design Memory] Appended audit command to existing pre-commit hook.');
+  } else {
+    fs.writeFileSync(hookPath, hookContent, { encoding: 'utf-8', mode: 0o755 });
+    console.log('[Design Memory] Created pre-commit hook.');
+  }
+
+  fs.chmodSync(hookPath, '755');
+}

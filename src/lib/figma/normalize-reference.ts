@@ -1,10 +1,10 @@
-import { FigmaSyncError } from "@/lib/figma/client";
-import { extractComponentReferences } from "@/lib/figma/extract-components";
-import { fetchFigmaFileBundle } from "@/lib/figma/fetch-file";
-import { extractReferenceTokens } from "@/lib/figma/extract-tokens";
-import type { FigmaFileBundle } from "@/lib/figma/fetch-file";
-import type { ReferenceSnapshot } from "@/lib/types";
-import { uniqueStrings } from "@/lib/utils";
+import { FigmaSyncError } from "../figma/client";
+import { extractComponentReferences } from "../figma/extract-components";
+import { fetchFigmaFileBundle } from "./fetch-file";
+import { extractReferenceTokens } from "./extract-tokens";
+import type { FigmaFileBundle } from "./fetch-file";
+import type { ReferenceSnapshot } from "../types";
+import { uniqueStrings } from "../utils";
 
 function buildAliasMap(snapshot: ReferenceSnapshot) {
   const aliasMap: Record<string, string[]> = {};
