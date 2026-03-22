@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { writeDefaultConfig } from '../lib/config';
+import { ensureState } from '../lib/state';
 
 export async function installHook() {
   const cwd = process.cwd();
@@ -16,19 +17,20 @@ export async function installHook() {
   }
 
   const hookPath = path.join(hooksDir, 'pre-commit');
-const hookContent = `#!/bin/sh
+  const hookContent = `#!/bin/sh
 echo "[Design Memory] Auditing staged files for design drift..."
-npx @derin/design-memory audit
+design-memory audit
 if [ $? -ne 0 ]; then
   echo "[Design Memory] ⚠️ Commit blocked. If this is a false positive, force the commit by running: git commit --no-verify"
   exit 1
 fi
 `;
   const configPath = writeDefaultConfig(cwd);
+  const statePaths = ensureState(cwd);
 
   if (fs.existsSync(hookPath)) {
     const existing = fs.readFileSync(hookPath, 'utf-8');
-    if (existing.includes('npx @derin/design-memory audit')) {
+    if (existing.includes('design-memory audit')) {
       console.log('[Design Memory] Pre-commit hook already installed.');
       return;
     }
@@ -41,4 +43,5 @@ fi
 
   fs.chmodSync(hookPath, '755');
   console.log(`[Design Memory] Config ready at ${configPath}.`);
+  console.log(`[Design Memory] State directory ready at ${statePaths.root}.`);
 }

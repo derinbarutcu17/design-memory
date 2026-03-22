@@ -42,6 +42,8 @@ export function normalizeFigmaReference(
       lastModified: bundle.file.lastModified,
       componentCount: components.length,
       tokenCount: tokens.length,
+      variantCount: components.reduce((count, component) => count + (component.variants?.length ?? 0), 0),
+      stateCount: components.reduce((count, component) => count + (component.states?.length ?? 0), 0),
     },
     tokens,
     components,

@@ -1,32 +1,38 @@
 # @derin/design-memory
 
-Headless CLI for design drift enforcement in code and agent workflows.
+Design Memory blocks net-new design-system drift in React/Tailwind PRs using deterministic checks, reference snapshots, and AI only for edge cases.
 
-This README is written so a coding agent can pick up this repository, install the tool, attach it to another repository, and run a real audit flow with minimal guessing.
+This repo is currently documented as a local-first CLI tool. It is not published to npm yet, so the primary install path is local development plus `npm link`.
 
-## What This Tool Does
+## What It Is
 
-- audits staged UI changes with `git diff --cached`
-- reads design context from `DESIGN.md` or `design.md`
-- reads project rules from `.cursorrules` when present
-- reads optional Figma token context from `design-memory.config.json`
-- prefers local model endpoints before paid APIs
-- supports blocking hook mode and warning-only mode
-- supports non-blocking GitHub PR scans with `gh`
+- CLI-first enforcement for React/Tailwind repos
+- PR-gate-first workflow
+- deterministic checks before any AI assistance
+- canonical reference snapshots as the source of truth
+- baseline and review memory so teams only block on net-new drift
 
-## Repo Architecture
+## What It Is Not
 
-- `src/cli/index.ts`: CLI entrypoint
-- `src/cli/install.ts`: installs `.git/hooks/pre-commit` and writes config
-- `src/cli/ghost.ts`: injects AI usage rules into `.cursorrules` / `.windsurfrules`
-- `src/lib/git.ts`: harvests staged UI diffs and filters non-UI files
-- `src/lib/context.ts`: loads design context from repo files
-- `src/lib/config.ts`: canonical config schema and file filtering
-- `src/lib/engine.ts`: local-first model routing
-- `src/lib/audit.ts`: deterministic + LLM audit logic
-- `src/lib/github.ts`: `gh`-based PR scanning
+- not full visual QA yet
+- not universal frontend enforcement for every stack
+- not a prompt wrapper pretending to be a rule engine
 
-## Install For Local Development
+## Core Commands
+
+```bash
+design-memory init
+design-memory sync-reference
+design-memory audit
+design-memory scan --pr=123
+design-memory review
+design-memory compare
+design-memory ghost
+```
+
+`ghost` is optional. It is not part of the primary workflow.
+
+## Local Development Install
 
 From this repository:
 
@@ -37,204 +43,248 @@ npm run build
 npm link
 ```
 
-Verify the CLI:
+Verify:
 
 ```bash
 design-memory --help
 ```
 
-## Quickstart In Another Repository
+## Use It In Another Repo
 
-From the target repository you want to audit:
+From the target React/Tailwind repository:
 
 ```bash
 cd /path/to/target-repo
-npx @derin/design-memory init
-npx @derin/design-memory ghost
+design-memory init
+design-memory sync-reference
+git add .
+design-memory audit
 ```
-
-This creates:
-
-- `.git/hooks/pre-commit`
-- `design-memory.config.json`
-- `.cursorrules` if no rules file exists
 
 ## Canonical Config
 
-`design-memory init` writes this file if it does not exist:
+`design-memory init` writes `design-memory.config.json` if it does not exist.
 
 ```json
 {
-  "strictness": "warn",
-  "designSource": "./DESIGN.md",
+  "strictness": "block",
+  "stateDir": ".design-memory",
+  "reference": {
+    "sourceType": "design-md",
+    "path": "./DESIGN.md",
+    "figmaFileKey": "",
+    "figmaUrl": "",
+    "stitchPath": ""
+  },
   "include": ["src/components/**/*.tsx", "src/app/**/*.tsx"],
   "exclude": ["src/lib/**", "**/*.test.tsx", "**/*.test.ts"],
+  "rules": {
+    "color.raw-hex": "error",
+    "tailwind.arbitrary-spacing": "error",
+    "tailwind.arbitrary-radius": "error",
+    "tailwind.arbitrary-font-size": "warn",
+    "style.inline": "error",
+    "token.mismatch": "error",
+    "component.required-pattern": "error",
+    "component.disallowed-pattern": "error",
+    "component.variant-drift": "warn",
+    "component.missing-state": "warn"
+  },
+  "baseline": {
+    "mode": "net-new-only"
+  },
+  "llmFallback": {
+    "enabled": false,
+    "mode": "explain-only"
+  },
   "ai": {
     "providerPreference": ["local", "anthropic", "openai"],
     "maxRetries": 1
-  }
+  },
+  "visualProvider": "none"
 }
 ```
 
-## Minimal Design File
+## Reference Snapshot Flow
 
-Create `DESIGN.md` or `design.md` in the target repository root.
+All design sources normalize into `.design-memory/reference-snapshot.json`.
 
-Example:
+Supported sources:
 
-```md
-# UI Rules
+- `design-md`
+- `stitch-markdown`
+- `figma`
 
-Use only approved color tokens.
-Do not use raw hex colors in UI components.
-Use rounded corners for interactive elements.
-Spacing must follow the design token scale.
+Sync the source of truth:
+
+```bash
+design-memory sync-reference
 ```
 
-## How An Agent Should Use It
+If no snapshot exists, `audit` and `scan` fail and tell you to run `design-memory sync-reference`.
 
-If the user gives you a repository and says “let’s use Design Memory,” do this:
+## Local State
 
-1. Clone or open the target repository.
-2. Run `npx @derin/design-memory init`.
-3. Run `npx @derin/design-memory ghost`.
-4. Ensure the repo contains `DESIGN.md` or update `design-memory.config.json` to point at the correct design file.
-5. Stage UI changes with `git add .` or `git add <files>`.
-6. Run `npx @derin/design-memory audit`.
-7. If drift is reported:
-   - read the violations
-   - fix them
-   - rerun `npx @derin/design-memory audit`
-8. Commit only after the audit is clean, or let the user decide to bypass with `git commit --no-verify`.
+```text
+.design-memory/
+  reference-snapshot.json
+  latest-run.json
+  reviews.json
+  baseline.json
+  runs/
+```
 
-## Manual Audit Flow
+## Baseline Adoption Flow
+
+Use this when adopting the tool in an existing repo:
+
+```bash
+design-memory sync-reference
+git add .
+design-memory audit --create-baseline
+```
+
+After that, blocking behavior is limited to net-new or reopened `error` findings.
+
+## Audit Flow
 
 ```bash
 git add .
-npx @derin/design-memory audit
+design-memory audit
 ```
 
 Behavior:
 
 - no staged UI changes: exits clean
-- clean audit: exits `0`
-- drift in `warn` mode: prints violations and exits `0`
-- drift in `block` mode: prints violations, prints `git commit --no-verify`, exits `1`
-
-## Git Hook Flow
-
-After `design-memory init`, commits trigger the audit automatically:
-
-```bash
-git commit -m "Update button styles"
-```
-
-If `strictness` is `"block"` and drift is found, the hook prints:
-
-```bash
-git commit --no-verify
-```
-
-That is the emergency escape hatch for false positives.
+- no snapshot: exits with an explicit sync-reference error
+- baseline creation: stores accepted current findings
+- `warn` strictness: advisory only
+- `block` strictness: blocks only on net-new or reopened `error` findings
 
 ## PR Scan Flow
 
-Non-blocking review of an existing GitHub PR:
+Primary demo flow:
 
 ```bash
-npx @derin/design-memory scan --pr=123
+design-memory scan --pr=123
 ```
 
 Requirements:
 
-- target repo must be a Git repo
-- `gh` CLI must be installed and authenticated
+- target repo is a Git repo
+- `gh` CLI is installed and authenticated
+- a reference snapshot already exists
 
-The scan command uses the local GitHub CLI, not Octokit.
+## Review Memory
 
-## Model Routing
-
-Provider preference is controlled by `design-memory.config.json`.
-
-Default:
-
-```json
-{
-  "ai": {
-    "providerPreference": ["local", "anthropic", "openai"]
-  }
-}
-```
-
-Resolution order:
-
-1. Ollama on `localhost:11434`
-2. LM Studio on `localhost:1234`
-3. `ANTHROPIC_API_KEY` if preferred and available
-4. `OPENAI_API_KEY` if preferred and available
-
-## Deterministic Anchoring
-
-Before the LLM is asked to judge structural drift, the audit runs deterministic checks:
-
-- extracts raw hex colors from the diff
-- compares them to the allowed hex values found in the design context
-- injects these findings into the prompt as `DETERMINISTIC FACTS:`
-
-This reduces hallucinated token violations.
-
-## CLI Commands
+List the latest findings:
 
 ```bash
-npx @derin/design-memory init
-npx @derin/design-memory audit
-npx @derin/design-memory scan --pr=123
-npx @derin/design-memory ghost
+design-memory review
 ```
 
-## JSON Schemas
+Mark a finding:
 
-### Audit Result Schema
+```bash
+design-memory review --fingerprint abc123 --status intentional --note "accepted for now"
+```
+
+Compare current state:
+
+```bash
+design-memory compare
+```
+
+## Deterministic Rule Engine
+
+Current deterministic rule pack focuses on React/Tailwind drift:
+
+- raw hex colors
+- arbitrary Tailwind spacing values
+- arbitrary Tailwind radius values
+- arbitrary Tailwind font sizes
+- inline styles
+- token mismatch using snapshot aliases and code hints
+- component required/disallowed patterns
+- explicit variant drift and missing state checks where the snapshot is explicit
+
+## AI Role
+
+AI is off by default for blocking decisions.
+
+Allowed uses:
+
+- explain deterministic findings
+- help with ambiguous mapping
+- suggest fix wording
+
+AI does not create blocking issues by default.
+
+## Audit Output Schema
+
+Machine-readable output is available via `--json`.
 
 ```json
 {
-  "driftDetected": true,
-  "violations": [
+  "id": "run_ab12cd34",
+  "status": "completed",
+  "summary": {
+    "totalIssues": 1,
+    "error": 1,
+    "warn": 0,
+    "byType": {
+      "hardcoded-style": 1
+    },
+    "byStatus": {
+      "new": 1
+    }
+  },
+  "filesAnalyzed": ["src/components/Button.tsx"],
+  "matchedComponents": [
     {
-      "file": "components/Button.tsx",
-      "issue": "Hardcoded hex color does not match design.md token rules."
+      "filePath": "src/components/Button.tsx",
+      "componentName": "Button",
+      "confidence": 0.98,
+      "detectionSource": "deterministic"
+    }
+  ],
+  "issues": [
+    {
+      "fingerprint": "a13bc9e2f9d1",
+      "ruleId": "tailwind.arbitrary-radius",
+      "issueType": "hardcoded-style",
+      "severity": "error",
+      "confidence": 0.98,
+      "componentName": "Button",
+      "filePath": "src/components/Button.tsx",
+      "expected": "Use approved radius classes instead of arbitrary radius values.",
+      "found": "rounded-[14px]",
+      "evidenceSnippet": "className=\"rounded-[14px] px-4 py-2\"",
+      "suggestedAction": "Replace rounded-[14px] with an approved radius token/class.",
+      "detectionSource": "deterministic",
+      "status": "new"
     }
   ]
 }
 ```
 
-### MCP Tool Input Schema
+## Hook Behavior
 
-```json
-{
-  "type": "object",
-  "properties": {
-    "cwd": {
-      "type": "string",
-      "description": "Absolute repository path to audit. Defaults to the current working directory."
-    },
-    "mode": {
-      "type": "string",
-      "enum": ["staged"],
-      "description": "Audit mode. Only staged changes are supported."
-    }
-  },
-  "required": [],
-  "additionalProperties": false
-}
+`design-memory init` installs a pre-commit hook that runs:
+
+```bash
+design-memory audit
 ```
 
-## MCP / Skill Integration
+If the commit is blocked, the hook prints:
 
-- tool name: `design_memory_audit`
-- execution command: `npx @derin/design-memory audit`
+```bash
+git commit --no-verify
+```
 
-## Verification Commands
+That is the escape hatch for false positives or urgent work.
+
+## Verification
 
 Run inside this repository:
 
@@ -243,16 +293,4 @@ npm run build
 npm test
 npm run lint
 npm pack --dry-run
-```
-
-## Agent Shortcut
-
-If you are an agent and the user says “use Design Memory on this repo,” the minimum safe command sequence is:
-
-```bash
-cd /path/to/target-repo
-npx @derin/design-memory init
-npx @derin/design-memory ghost
-git add .
-npx @derin/design-memory audit
 ```

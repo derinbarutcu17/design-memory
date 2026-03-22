@@ -1,55 +1,107 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
-import { buildAuditPrompt, findDeterministicViolations, parseAuditResult, runAudit } from '../src/lib/audit';
+import { buildAuditPrompt, compareRuns, reviewFinding, runAudit } from '../src/lib/audit';
+import { saveReferenceSnapshot } from '../src/lib/state';
+import type { ReferenceSnapshot } from '../src/lib/types';
 
-test('buildAuditPrompt contains strict JSON contract', () => {
-  const prompt = buildAuditPrompt('context', 'diff');
-  assert.match(prompt.systemPrompt, /"driftDetected": boolean/);
-  assert.match(prompt.systemPrompt, /"violations":/);
-  assert.match(prompt.userPrompt, /DESIGN CONTEXT:/);
-  assert.match(prompt.userPrompt, /GIT DIFF:/);
-});
+function makeTempDir() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'design-memory-audit-'));
+}
 
-test('parseAuditResult rejects invalid JSON payloads', () => {
-  assert.throws(() => parseAuditResult('{"violations":[]}'), /missing driftDetected boolean/);
-});
+function writeConfig(cwd: string, overrides: Record<string, unknown> = {}) {
+  fs.writeFileSync(path.join(cwd, 'design-memory.config.json'), JSON.stringify({
+    strictness: 'block',
+    stateDir: '.design-memory',
+    reference: {
+      sourceType: 'design-md',
+      path: './DESIGN.md',
+    },
+    include: [],
+    exclude: [],
+    rules: {
+      'color.raw-hex': 'error',
+      'tailwind.arbitrary-spacing': 'error',
+      'tailwind.arbitrary-radius': 'error',
+      'tailwind.arbitrary-font-size': 'warn',
+      'style.inline': 'error',
+      'token.mismatch': 'error',
+      'component.required-pattern': 'error',
+      'component.disallowed-pattern': 'error',
+      'component.variant-drift': 'warn',
+      'component.missing-state': 'warn',
+    },
+    baseline: { mode: 'net-new-only' },
+    llmFallback: { enabled: false, mode: 'explain-only' },
+    ai: { providerPreference: ['local'], maxRetries: 1 },
+    visualProvider: 'none',
+    ...overrides,
+  }));
+}
 
-test('runAudit exits 0 when no staged UI changes are present', async () => {
-  let exitCode: number | undefined;
-  await runAudit({
-    getDiff: () => '',
-    exit: ((code?: number) => {
-      exitCode = code;
-      return undefined as never;
-    }) as typeof process.exit,
-  });
+function writeSnapshot(cwd: string) {
+  const snapshot: ReferenceSnapshot = {
+    metadata: {
+      source: 'stitch-design-md',
+      versionLabel: 'Test snapshot',
+      importedAt: new Date().toISOString(),
+      tokenCount: 1,
+      componentCount: 1,
+    },
+    tokens: [
+      {
+        name: 'color.button.primary',
+        kind: 'color',
+        value: '#00ff00',
+        aliases: ['primary', 'button-primary'],
+        codeHints: ['bg-primary', 'text-primary'],
+      },
+    ],
+    components: [
+      {
+        name: 'Button',
+        codeMatches: ['Button'],
+        aliases: ['Button'],
+        requiredPatterns: ['bg-primary'],
+        disallowedPatterns: ['style={{'],
+        states: [{ name: 'hover' }],
+        variants: [{ name: 'primary' }],
+        tokensUsed: ['color.button.primary'],
+      },
+    ],
+    aliasMap: {
+      'color.button.primary': ['primary', 'bg-primary', 'text-primary'],
+    },
+  };
 
-  assert.equal(exitCode, 0);
-});
+  saveReferenceSnapshot(snapshot, cwd);
+}
 
-test('runAudit exits 1 and reports violations when drift is detected', async () => {
-  const fs = await import('node:fs');
-  const os = await import('node:os');
-  const path = await import('node:path');
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'design-memory-audit-block-'));
-  fs.writeFileSync(
-    path.join(cwd, 'design-memory.config.json'),
-    JSON.stringify({
-      strictness: 'block',
-      designSource: './DESIGN.md',
-      include: [],
-      exclude: [],
-      ai: { providerPreference: ['local'], maxRetries: 1 },
-    }),
+test('buildAuditPrompt contains deterministic facts contract', () => {
+  const prompt = buildAuditPrompt(
+    {
+      metadata: { source: 'design-md', versionLabel: 'Spec' },
+      tokens: [],
+      components: [],
+      aliasMap: {},
+    },
+    [],
+    [],
   );
+  assert.match(prompt.systemPrompt, /must not invent new blocking issues/i);
+  assert.match(prompt.userPrompt, /DETERMINISTIC FACTS:/);
+});
+
+test('runAudit exits 1 when no reference snapshot exists', async () => {
+  const cwd = makeTempDir();
+  writeConfig(cwd);
 
   let exitCode: number | undefined;
   await runAudit({
-    getDiff: () => 'FILE: button.tsx\n+ bg-red-500',
-    getContext: async () => 'Use neutral tokens.',
-    getBrain: async () => ({ provider: 'openai', apiKey: 'key', model: 'gpt-4o' }),
-    askBrain: async () => '{"driftDetected":true,"violations":[{"file":"button.tsx","issue":"Hardcoded red token."}]}',
+    getDiff: () => 'FILE: Button.tsx\n+ className="bg-primary"\n',
     exit: ((code?: number) => {
       exitCode = code;
       return undefined as never;
@@ -59,41 +111,80 @@ test('runAudit exits 1 and reports violations when drift is detected', async () 
   assert.equal(exitCode, 1);
 });
 
-test('findDeterministicViolations flags raw hex values missing from design context', () => {
-  const violations = findDeterministicViolations(
-    'FILE: button.tsx\n+ className="bg-[#ff0000] text-white"\n',
-    'Approved tokens: #00ff00',
-  );
-  assert.equal(violations.length, 1);
-  assert.match(violations[0].issue, /#ff0000/i);
-});
-
-test('runAudit warns instead of blocking when strictness is warn', async () => {
-  const fs = await import('node:fs');
-  const os = await import('node:os');
-  const path = await import('node:path');
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'design-memory-audit-'));
-  fs.writeFileSync(
-    path.join(cwd, 'design-memory.config.json'),
-    JSON.stringify({
-      strictness: 'warn',
-      designSource: './DESIGN.md',
-      include: [],
-      exclude: [],
-      ai: { providerPreference: ['local'], maxRetries: 1 },
-    }),
-  );
+test('runAudit creates a baseline and later only blocks on net-new error findings', async () => {
+  const cwd = makeTempDir();
+  writeConfig(cwd);
+  writeSnapshot(cwd);
 
   let exitCode: number | undefined;
+  const exit = ((code?: number) => {
+    exitCode = code;
+    return undefined as never;
+  }) as typeof process.exit;
+
   await runAudit({
-    getDiff: () => 'FILE: button.tsx\n+ className="bg-[#ff0000]"',
-    getContext: async () => 'Use #00ff00 only.',
-    getBrain: async () => ({ provider: 'openai', apiKey: 'key', model: 'gpt-4o' }),
-    askBrain: async () => '{"driftDetected":false,"violations":[]}',
-    exit: ((code?: number) => {
-      exitCode = code;
-      return undefined as never;
-    }) as typeof process.exit,
+    getDiff: () => 'FILE: src/components/Button.tsx\n+ className="rounded-[14px] bg-[#ff0000]"\n',
+    exit,
+  }, { cwd, createBaseline: true });
+
+  assert.equal(exitCode, 0);
+
+  await runAudit({
+    getDiff: () => 'FILE: src/components/Button.tsx\n+ className="rounded-[14px] bg-[#ff0000]"\n',
+    exit,
+  }, { cwd });
+
+  assert.equal(exitCode, 0);
+});
+
+test('runAudit blocks on net-new error findings and compare reports them', async () => {
+  const cwd = makeTempDir();
+  writeConfig(cwd);
+  writeSnapshot(cwd);
+
+  let exitCode: number | undefined;
+  const exit = ((code?: number) => {
+    exitCode = code;
+    return undefined as never;
+  }) as typeof process.exit;
+
+  await runAudit({
+    getDiff: () => 'FILE: src/components/Button.tsx\n+ className="bg-primary"\n',
+    exit,
+  }, { cwd, createBaseline: true });
+
+  await runAudit({
+    getDiff: () => 'FILE: src/components/Button.tsx\n+ className="rounded-[14px] bg-primary style={{ color: "red" }}"\n',
+    exit,
+  }, { cwd });
+
+  assert.equal(exitCode, 1);
+  const comparison = compareRuns(cwd);
+  assert.ok(comparison.newFingerprints.length > 0);
+});
+
+test('reviewFinding stores intentional status and prevents blocking on unchanged finding', async () => {
+  const cwd = makeTempDir();
+  writeConfig(cwd);
+  writeSnapshot(cwd);
+
+  let exitCode: number | undefined;
+  const exit = ((code?: number) => {
+    exitCode = code;
+    return undefined as never;
+  }) as typeof process.exit;
+
+  await runAudit({
+    getDiff: () => 'FILE: src/components/Button.tsx\n+ className="rounded-[14px] bg-primary"\n',
+    exit,
+  }, { cwd });
+
+  const latestRun = JSON.parse(fs.readFileSync(path.join(cwd, '.design-memory', 'latest-run.json'), 'utf-8')) as { issues: Array<{ fingerprint: string }> };
+  reviewFinding(latestRun.issues[0].fingerprint, 'intentional', 'accepted for now', cwd);
+
+  await runAudit({
+    getDiff: () => 'FILE: src/components/Button.tsx\n+ className="rounded-[14px] bg-primary"\n',
+    exit,
   }, { cwd });
 
   assert.equal(exitCode, 0);

@@ -6,6 +6,24 @@ export type PullRequestScan = {
   diff: string;
 };
 
+function toFileScopedDiff(diff: string) {
+  const chunks = diff.split(/^diff --git /m).filter(Boolean);
+  const files: string[] = [];
+
+  for (const chunk of chunks) {
+    const lines = chunk.split('\n');
+    const header = lines[0] ?? '';
+    const match = header.match(/a\/(.+?)\s+b\/(.+)$/);
+    const filePath = match?.[2] ?? match?.[1];
+    if (!filePath) {
+      continue;
+    }
+    files.push(`FILE: ${filePath}\n${chunk.trim()}`);
+  }
+
+  return files.join('\n\n').trim();
+}
+
 function gh(args: string[], cwd = process.cwd()) {
   return execFileSync('gh', args, {
     cwd,
@@ -26,7 +44,7 @@ export function getPullRequestScan(prNumber: number, cwd = process.cwd(), repo?:
   const repoRef = repo ?? inferGitHubRepo(cwd);
   const prJson = gh(['pr', 'view', String(prNumber), '--repo', repoRef, '--json', 'title,url'], cwd).trim();
   const details = JSON.parse(prJson) as { title: string; url: string };
-  const diff = gh(['pr', 'diff', String(prNumber), '--repo', repoRef], cwd);
+  const diff = toFileScopedDiff(gh(['pr', 'diff', String(prNumber), '--repo', repoRef], cwd));
 
   return {
     title: details.title,

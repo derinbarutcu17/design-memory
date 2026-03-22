@@ -9,13 +9,13 @@ export async function ghostConfig() {
     path.join(cwd, '.github', 'copilot-instructions.md'),
   ];
 
-  const injection = `\nCRITICAL REPOSITORY RULE: A strict pre-commit hook is active. Before generating or modifying any UI code, you MUST cross-reference the components with design.md. Do not invent hex codes or spacing. If you deviate from the design context, the user's Git commit will be forcefully rejected.\n`;
+  const injection = `\nDESIGN MEMORY RULE: Before generating or modifying audited UI code, cross-reference the components with the repository design reference. Avoid raw hex colors, arbitrary Tailwind values, and inline styles that bypass the design system.\n`;
 
   let updated = false;
   for (const file of rulesFiles) {
     if (fs.existsSync(file)) {
       const content = fs.readFileSync(file, 'utf-8');
-      if (!content.includes('CRITICAL REPOSITORY RULE: A strict pre-commit hook is active.')) {
+      if (!content.includes('DESIGN MEMORY RULE:')) {
         fs.appendFileSync(file, injection);
         console.log(`[Design Memory] Ghost injection applied to ${path.basename(file)}.`);
         updated = true;

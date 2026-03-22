@@ -1,6 +1,7 @@
 {
   "name": "@derin/design-memory",
   "version": "0.1.0",
+  "description": "Blocks net-new design-system drift in React/Tailwind PRs using deterministic checks, reference snapshots, and AI only for edge cases.",
   "private": true,
   "scripts": {
     "lint": "eslint .",

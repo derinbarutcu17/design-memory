@@ -37,10 +37,26 @@ test('detectAvailableBrain respects config provider preference ordering', async 
     path.join(cwd, 'design-memory.config.json'),
     JSON.stringify({
       strictness: 'warn',
-      designSource: './DESIGN.md',
+      stateDir: '.design-memory',
+      reference: { sourceType: 'design-md', path: './DESIGN.md' },
       include: [],
       exclude: [],
+      rules: {
+        'color.raw-hex': 'error',
+        'tailwind.arbitrary-spacing': 'error',
+        'tailwind.arbitrary-radius': 'error',
+        'tailwind.arbitrary-font-size': 'warn',
+        'style.inline': 'error',
+        'token.mismatch': 'error',
+        'component.required-pattern': 'error',
+        'component.disallowed-pattern': 'error',
+        'component.variant-drift': 'warn',
+        'component.missing-state': 'warn',
+      },
+      baseline: { mode: 'net-new-only' },
+      llmFallback: { enabled: false, mode: 'explain-only' },
       ai: { providerPreference: ['openai', 'anthropic'], maxRetries: 1 },
+      visualProvider: 'none',
     }),
   );
 

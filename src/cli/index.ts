@@ -1,23 +1,26 @@
 #!/usr/bin/env node
 import { Command } from 'commander';
-import { runAudit } from '../lib/audit';
-import { scanPullRequest } from '../lib/audit';
+import { compareRuns, loadLatestRunJson, reviewFinding, runAudit, scanPullRequest } from '../lib/audit';
+import { syncReference } from '../lib/reference';
 import { installHook } from './install';
 import { ghostConfig } from './ghost';
+import { prettyJson } from '../lib/utils';
 
 export const program = new Command();
 
 program
   .name('design-memory')
-  .description('Enforce design constraints at the Git hook level.')
-  .version('0.1.0');
+  .description('Blocks net-new design-system drift in React/Tailwind PRs using deterministic checks, reference snapshots, and AI only for edge cases.')
+  .version('0.2.0');
 
 export const auditCommand = program
   .command('audit')
-  .description('Runs the check manually on staged files')
-  .action(async () => {
+  .description('Audit staged UI changes against the synced reference snapshot')
+  .option('--create-baseline', 'Create a baseline from the current findings')
+  .option('--json', 'Print machine-readable JSON output')
+  .action(async ({ createBaseline, json }: { createBaseline?: boolean; json?: boolean }) => {
     try {
-      await runAudit();
+      await runAudit({}, { createBaseline, json });
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
       process.exit(1);
@@ -26,7 +29,7 @@ export const auditCommand = program
 
 export const initCommand = program
   .command('init')
-  .description('Installs the Git hook')
+  .description('Install the pre-commit hook and write the default config')
   .action(async () => {
     try {
       await installHook();
@@ -36,9 +39,25 @@ export const initCommand = program
     }
   });
 
+export const syncReferenceCommand = program
+  .command('sync-reference')
+  .description('Normalize the configured design source into a canonical reference snapshot')
+  .action(async () => {
+    try {
+      const result = await syncReference();
+      console.log(`[Design Memory] Reference synced from ${result.snapshot.metadata.source}.`);
+      console.log(`[Design Memory] Tokens: ${result.snapshot.metadata.tokenCount ?? result.snapshot.tokens.length}`);
+      console.log(`[Design Memory] Components: ${result.snapshot.metadata.componentCount ?? result.snapshot.components.length}`);
+      console.log(`[Design Memory] Output: ${result.outputPath}`);
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+  });
+
 export const ghostCommand = program
   .command('ghost')
-  .description('IDE Ghost Configuration (Prompt Injection)')
+  .description('Optional helper: inject Design Memory guidance into IDE rules files')
   .action(async () => {
     try {
       await ghostConfig();
@@ -50,11 +69,49 @@ export const ghostCommand = program
 
 export const scanCommand = program
   .command('scan')
-  .description('Runs a non-blocking audit against a GitHub pull request')
+  .description('Run a non-blocking PR audit against a GitHub pull request')
   .requiredOption('--pr <number>', 'Pull request number to scan')
-  .action(async ({ pr }: { pr: string }) => {
+  .option('--json', 'Print machine-readable JSON output')
+  .action(async ({ pr, json }: { pr: string; json?: boolean }) => {
     try {
-      await scanPullRequest(Number(pr));
+      await scanPullRequest(Number(pr), process.cwd(), { json });
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+  });
+
+export const reviewCommand = program
+  .command('review')
+  .description('List or update review decisions for the latest run')
+  .option('--fingerprint <value>', 'Finding fingerprint to review')
+  .option('--status <value>', 'Review status: valid, intentional, or ignore')
+  .option('--note <value>', 'Optional note for the review decision')
+  .option('--json', 'Print machine-readable JSON output')
+  .action(async ({ fingerprint, status, note, json }: { fingerprint?: string; status?: 'valid' | 'intentional' | 'ignore'; note?: string; json?: boolean }) => {
+    try {
+      if (fingerprint && status) {
+        const review = reviewFinding(fingerprint, status, note);
+        console.log(json ? prettyJson(review) : `[Design Memory] Stored ${status} review for ${fingerprint}.`);
+        return;
+      }
+
+      const latest = loadLatestRunJson();
+      console.log(json ? prettyJson(latest.issues) : latest.issues.map((issue) => `${issue.fingerprint} ${issue.status} ${issue.filePath} ${issue.ruleId}`).join('\n'));
+    } catch (error) {
+      console.error(error instanceof Error ? error.message : String(error));
+      process.exit(1);
+    }
+  });
+
+export const compareCommand = program
+  .command('compare')
+  .description('Compare the latest run against the previous run/baseline')
+  .option('--json', 'Print machine-readable JSON output')
+  .action(async ({ json }: { json?: boolean }) => {
+    try {
+      const comparison = compareRuns();
+      console.log(json ? prettyJson(comparison) : prettyJson(comparison));
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
       process.exit(1);

@@ -29,10 +29,11 @@ test('installHook writes the pre-commit hook with executable permissions', async
 
   const hookPath = path.join(cwd, '.git', 'hooks', 'pre-commit');
   const hookContent = fs.readFileSync(hookPath, 'utf-8');
-  assert.match(hookContent, /npx @derin\/design-memory audit/);
+  assert.match(hookContent, /design-memory audit/);
   assert.match(hookContent, /git commit --no-verify/);
   assert.equal(fs.statSync(hookPath).mode & 0o777, 0o755);
   assert.ok(fs.existsSync(path.join(cwd, 'design-memory.config.json')));
+  assert.ok(fs.existsSync(path.join(cwd, '.design-memory')));
 });
 
 test('ghostConfig creates .cursorrules when no IDE rules file exists', async () => {
@@ -42,5 +43,5 @@ test('ghostConfig creates .cursorrules when no IDE rules file exists', async () 
   });
 
   const content = fs.readFileSync(path.join(cwd, '.cursorrules'), 'utf-8');
-  assert.match(content, /MUST cross-reference the components with design\.md/);
+  assert.match(content, /DESIGN MEMORY RULE/);
 });

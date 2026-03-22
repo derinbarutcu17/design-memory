@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import { getDesignContext } from '../src/lib/context';
+import { getDesignContext, resolveReferenceSnapshot } from '../src/lib/context';
 
 function makeTempDir() {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'design-memory-context-'));
@@ -22,28 +22,75 @@ test('getDesignContext reads DESIGN.md and .cursorrules from cwd', async () => {
   assert.match(context, /Always read design\.md first/);
 });
 
-test('getDesignContext tolerates malformed config files', async () => {
-  const cwd = makeTempDir();
-  fs.writeFileSync(path.join(cwd, 'design-memory.json'), '{invalid json');
-
-  const context = await getDesignContext({ cwd });
-  assert.equal(context, '');
-});
-
-test('getDesignContext respects design-memory.config.json designSource', async () => {
+test('resolveReferenceSnapshot loads design-md files from config.reference.path', async () => {
   const cwd = makeTempDir();
   fs.writeFileSync(path.join(cwd, 'spec.md'), '# Alternate spec\nUse engraved inputs.');
   fs.writeFileSync(
     path.join(cwd, 'design-memory.config.json'),
     JSON.stringify({
-      strictness: 'warn',
-      designSource: './spec.md',
+      strictness: 'block',
+      stateDir: '.design-memory',
+      reference: {
+        sourceType: 'design-md',
+        path: './spec.md',
+      },
       include: [],
       exclude: [],
+      rules: {
+        'color.raw-hex': 'error',
+        'tailwind.arbitrary-spacing': 'error',
+        'tailwind.arbitrary-radius': 'error',
+        'tailwind.arbitrary-font-size': 'warn',
+        'style.inline': 'error',
+        'token.mismatch': 'error',
+        'component.required-pattern': 'error',
+        'component.disallowed-pattern': 'error',
+        'component.variant-drift': 'warn',
+        'component.missing-state': 'warn',
+      },
+      baseline: { mode: 'net-new-only' },
+      llmFallback: { enabled: false, mode: 'explain-only' },
       ai: { providerPreference: ['local'], maxRetries: 1 },
+      visualProvider: 'none',
     }),
   );
 
-  const context = await getDesignContext({ cwd });
-  assert.match(context, /Alternate spec/);
+  const snapshot = await resolveReferenceSnapshot(cwd);
+  assert.equal(snapshot.metadata.source, 'design-md');
+  assert.equal(snapshot.metadata.fileName, 'spec.md');
+});
+
+test('resolveReferenceSnapshot throws when the configured source file is missing', async () => {
+  const cwd = makeTempDir();
+  fs.writeFileSync(
+    path.join(cwd, 'design-memory.config.json'),
+    JSON.stringify({
+      strictness: 'block',
+      stateDir: '.design-memory',
+      reference: {
+        sourceType: 'stitch-markdown',
+        path: './missing.md',
+      },
+      include: [],
+      exclude: [],
+      rules: {
+        'color.raw-hex': 'error',
+        'tailwind.arbitrary-spacing': 'error',
+        'tailwind.arbitrary-radius': 'error',
+        'tailwind.arbitrary-font-size': 'warn',
+        'style.inline': 'error',
+        'token.mismatch': 'error',
+        'component.required-pattern': 'error',
+        'component.disallowed-pattern': 'error',
+        'component.variant-drift': 'warn',
+        'component.missing-state': 'warn',
+      },
+      baseline: { mode: 'net-new-only' },
+      llmFallback: { enabled: false, mode: 'explain-only' },
+      ai: { providerPreference: ['local'], maxRetries: 1 },
+      visualProvider: 'none',
+    }),
+  );
+
+  await assert.rejects(resolveReferenceSnapshot(cwd), /No design source found/);
 });

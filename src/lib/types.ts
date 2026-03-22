@@ -1,11 +1,13 @@
-export type Severity = "high" | "medium" | "low";
+export type Severity = 'error' | 'warn';
 
-export type ReviewStatus = "valid" | "intentional" | "ignore";
+export type ReviewStatus = 'valid' | 'intentional' | 'ignore';
+export type DriftStatus = 'new' | 'remaining' | 'resolved' | 'reopened' | 'intentional' | 'ignored';
+export type DetectionSource = 'deterministic' | 'llm-assisted';
 
 export type Project = {
   id: string;
   name: string;
-  referenceProvider: "figma" | "stitch";
+  referenceProvider: 'figma' | 'stitch';
   figmaUrl?: string;
   stitchUrl?: string;
   repoUrl?: string;
@@ -61,6 +63,8 @@ export type ReferenceSnapshot = {
     lastModified?: string;
     componentCount?: number;
     tokenCount?: number;
+    variantCount?: number;
+    stateCount?: number;
   };
   tokens: ReferenceToken[];
   components: ComponentReference[];
@@ -78,67 +82,82 @@ export type ReferenceSnapshotRecord = {
 
 export type AuditSummary = {
   totalIssues: number;
-  high: number;
-  medium: number;
-  low: number;
+  error: number;
+  warn: number;
   byType: Record<string, number>;
+  byStatus: Record<string, number>;
   resolvedCount?: number;
   remainingCount?: number;
 };
 
 export type AuditRun = {
   id: string;
-  projectId: string;
-  referenceSnapshotId: string;
-  referenceSyncMode?: "live" | "cached";
+  projectId?: string;
+  referenceSnapshotId?: string;
   referenceSnapshotSourceType?: string;
-  prNumber: number;
-  prTitle: string;
-  commitSha: string;
+  prNumber?: number;
+  prTitle?: string;
+  commitSha?: string;
   sourcePrUrl?: string;
   sourcePrUpdatedAt?: string;
-  prSelectionMode?: "auto-latest" | "manual";
-  status: "completed" | "failed";
+  prSelectionMode?: 'auto-latest' | 'manual';
+  status: 'completed' | 'failed';
   summary: AuditSummary;
+  filesAnalyzed: string[];
+  matchedComponents: Array<{
+    filePath: string;
+    componentName: string;
+    confidence: number;
+    detectionSource: DetectionSource;
+  }>;
+  issues: DriftIssue[];
   comparison?: {
-    baselineRunId?: string;
     resolvedFingerprints: string[];
     remainingFingerprints: string[];
     newFingerprints: string[];
+    reopenedFingerprints: string[];
   };
   createdAt: string;
 };
 
 export type DriftIssue = {
-  id: string;
-  auditRunId: string;
   fingerprint: string;
-  componentName: string;
+  ruleId: string;
   issueType:
-    | "token-mismatch"
-    | "hardcoded-style"
-    | "variant-drift"
-    | "missing-state"
-    | "behavior-drift"
-    | "responsive-drift"
-    | "component-reuse";
+    | 'token-mismatch'
+    | 'hardcoded-style'
+    | 'variant-drift'
+    | 'missing-state'
+    | 'behavior-drift'
+    | 'responsive-drift'
+    | 'component-reuse';
   severity: Severity;
   confidence: number;
+  componentName: string;
+  filePath: string;
   expected: string;
   found: string;
-  filePath: string;
   evidenceSnippet: string;
   suggestedAction: string;
+  detectionSource: DetectionSource;
+  status: DriftStatus;
 };
 
 export type IssueReview = {
-  id: string;
-  auditRunId: string;
   fingerprint: string;
   status: ReviewStatus;
   note?: string;
   createdAt: string;
   updatedAt: string;
+};
+
+export type ReviewStore = {
+  reviews: Record<string, IssueReview>;
+};
+
+export type BaselineStore = {
+  acceptedFingerprints: Record<string, string>;
+  createdAt: string;
 };
 
 export type ProjectDetails = {

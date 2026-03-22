@@ -16,6 +16,8 @@ export function normalizeStitchReference(
       fileName: options?.fileName ?? "DESIGN.md",
       tokenCount: parsed.tokens.length,
       componentCount: parsed.components.length,
+      variantCount: parsed.components.reduce((count, component) => count + (component.variants?.length ?? 0), 0),
+      stateCount: parsed.components.reduce((count, component) => count + (component.states?.length ?? 0), 0),
     },
     tokens: parsed.tokens,
     components: parsed.components,
