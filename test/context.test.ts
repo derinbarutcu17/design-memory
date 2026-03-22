@@ -24,7 +24,7 @@ test('getDesignContext reads DESIGN.md and .cursorrules from cwd', async () => {
 
 test('resolveReferenceSnapshot loads design-md files from config.reference.path', async () => {
   const cwd = makeTempDir();
-  fs.writeFileSync(path.join(cwd, 'spec.md'), '# Alternate spec\n## Button\nUse `bg-primary` and rounded corners.\n');
+  fs.writeFileSync(path.join(cwd, 'spec.md'), '# Alternate spec\n## Button\n- Must use `bg-primary`\n- Do not use `style={{`\n- Supports hover and disabled states\n- Variants: primary, secondary\n');
   fs.writeFileSync(
     path.join(cwd, 'design-memory.config.json'),
     JSON.stringify({
@@ -59,6 +59,9 @@ test('resolveReferenceSnapshot loads design-md files from config.reference.path'
   assert.equal(snapshot.metadata.source, 'design-md');
   assert.equal(snapshot.metadata.fileName, 'spec.md');
   assert.ok((snapshot.metadata.componentCount ?? 0) > 0);
+  assert.ok((snapshot.metadata.stateCount ?? 0) > 0);
+  assert.ok((snapshot.metadata.variantCount ?? 0) > 0);
+  assert.ok(snapshot.components[0]?.requiredPatterns?.includes('bg-primary'));
 });
 
 test('resolveReferenceSnapshot throws when the configured source file is missing', async () => {

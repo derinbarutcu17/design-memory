@@ -124,6 +124,7 @@ test('runAudit creates a baseline and later only blocks on net-new error finding
 
   await runAudit({
     getDiff: () => 'FILE: src/components/Button.tsx\n+ className="rounded-[14px] bg-[#ff0000]"\n',
+    getFileContent: () => 'export function Button() { return <button className="rounded-[14px] bg-[#ff0000]" />; }',
     exit,
   }, { cwd, createBaseline: true });
 
@@ -131,6 +132,7 @@ test('runAudit creates a baseline and later only blocks on net-new error finding
 
   await runAudit({
     getDiff: () => 'FILE: src/components/Button.tsx\n+ className="rounded-[14px] bg-[#ff0000]"\n',
+    getFileContent: () => 'export function Button() { return <button className="rounded-[14px] bg-[#ff0000]" />; }',
     exit,
   }, { cwd });
 
@@ -150,11 +152,13 @@ test('runAudit blocks on net-new error findings and compare reports them', async
 
   await runAudit({
     getDiff: () => 'FILE: src/components/Button.tsx\n+ className="bg-primary"\n',
+    getFileContent: () => 'export function Button() { return <button className="bg-primary hover:bg-primary" />; }',
     exit,
   }, { cwd, createBaseline: true });
 
   await runAudit({
     getDiff: () => 'FILE: src/components/Button.tsx\n+ className="rounded-[14px] bg-primary style={{ color: "red" }}"\n',
+    getFileContent: () => 'export function Button() { return <button className="rounded-[14px] bg-primary hover:bg-primary style={{ color: \\"red\\" }}" />; }',
     exit,
   }, { cwd });
 
@@ -176,6 +180,7 @@ test('reviewFinding stores intentional status and prevents blocking on unchanged
 
   await runAudit({
     getDiff: () => 'FILE: src/components/Button.tsx\n+ className="rounded-[14px] bg-primary"\n',
+    getFileContent: () => 'export function Button() { return <button className="rounded-[14px] bg-primary" />; }',
     exit,
   }, { cwd });
 
@@ -184,6 +189,7 @@ test('reviewFinding stores intentional status and prevents blocking on unchanged
 
   await runAudit({
     getDiff: () => 'FILE: src/components/Button.tsx\n+ className="rounded-[14px] bg-primary"\n',
+    getFileContent: () => 'export function Button() { return <button className="rounded-[14px] bg-primary" />; }',
     exit,
   }, { cwd });
 
@@ -206,6 +212,36 @@ test('runAudit uses full file content for required pattern checks instead of onl
     getFileContent: () => 'export function Button() { return <button className="bg-primary hover:bg-primary" />; }',
     exit,
   }, { cwd });
+
+  assert.equal(exitCode, 0);
+  const latestRun = JSON.parse(fs.readFileSync(path.join(cwd, '.design-memory', 'latest-run.json'), 'utf-8')) as { issues: Array<{ ruleId: string }> };
+  assert.ok(!latestRun.issues.some((issue) => issue.ruleId === 'component.required-pattern'));
+});
+
+test('runAudit uses PR file contents for scan mode contract checks', async () => {
+  const cwd = makeTempDir();
+  writeConfig(cwd);
+  writeSnapshot(cwd);
+
+  let exitCode: number | undefined;
+  const exit = ((code?: number) => {
+    exitCode = code;
+    return undefined as never;
+  }) as typeof process.exit;
+
+  await runAudit({
+    getDiff: () => 'FILE: src/components/Button.tsx\n+ const changed = true\n',
+    exit,
+  }, {
+    cwd,
+    mode: 'scan',
+    prScan: {
+      title: 'Test PR',
+      url: 'https://example.com/pr/1',
+      diff: 'FILE: src/components/Button.tsx\n+ const changed = true\n',
+      files: [{ path: 'src/components/Button.tsx', content: 'export function Button() { return <button className="bg-primary hover:bg-primary" />; }' }],
+    },
+  });
 
   assert.equal(exitCode, 0);
   const latestRun = JSON.parse(fs.readFileSync(path.join(cwd, '.design-memory', 'latest-run.json'), 'utf-8')) as { issues: Array<{ ruleId: string }> };

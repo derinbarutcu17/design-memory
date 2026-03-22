@@ -5,7 +5,7 @@ import { filterAuditableFiles, getStagedDiff, getStagedFileContent, isAuditableC
 import { resolveReferenceSnapshot } from './context';
 import { detectAvailableBrain, promptBrain } from './engine';
 import { readConfig, type DesignMemoryConfig, type RuleId, type RuleSeverity } from './config';
-import { getPullRequestScan } from './github';
+import { getPullRequestScan, type PullRequestScan } from './github';
 import { createBaseline, loadBaseline, loadLatestRun, loadReferenceSnapshot, loadReviews, makeRunId, saveAuditRun } from './state';
 import type { AuditRun, DetectionSource, DriftIssue, ReferenceSnapshot } from './types';
 import { hashParts, normalizeForMatch, prettyJson, toPascalCase, uniqueStrings } from './utils';
@@ -27,6 +27,7 @@ type AuditOptions = {
   label?: string;
   createBaseline?: boolean;
   json?: boolean;
+  prScan?: PullRequestScan;
 };
 
 type FileDiff = {
@@ -59,8 +60,8 @@ function toIssueType(ruleId: RuleId): DriftIssue['issueType'] {
   return 'hardcoded-style';
 }
 
-function getIssueKey(issue: Pick<DriftIssue, 'ruleId' | 'componentName' | 'filePath'>) {
-  return `${normalizeForMatch(issue.componentName)}::${issue.ruleId}::${issue.filePath}`;
+function getIssueKey(issue: Pick<DriftIssue, 'ruleId' | 'componentName' | 'filePath' | 'expected'>) {
+  return `${normalizeForMatch(issue.componentName)}::${issue.ruleId}::${issue.filePath}::${normalizeForMatch(issue.expected)}`;
 }
 
 function parseDiffIntoFiles(diff: string, config: DesignMemoryConfig, cwd = process.cwd()): FileDiff[] {
@@ -496,6 +497,7 @@ export async function scanPullRequest(prNumber: number, cwd = process.cwd(), opt
     diff: scan.diff,
     label: `PR #${prNumber}: ${scan.title}\nSource: ${scan.url}`,
     json: options.json,
+    prScan: scan,
   });
 }
 
@@ -531,7 +533,10 @@ export async function runAudit(deps: AuditDependencies = {}, options: AuditOptio
 
   const files = parseDiffIntoFiles(diff, config, cwd).map((file) => ({
     ...file,
-    fullContent: mode === 'staged' ? getFileContent(file.filePath, cwd) : null,
+    fullContent:
+      mode === 'staged'
+        ? getFileContent(file.filePath, cwd)
+        : options.prScan?.files.find((entry) => entry.path === file.filePath)?.content ?? null,
   }));
   const mappings = matchComponents(snapshot, files);
   let issues = findDeterministicIssues(snapshot, files, mappings, config);
