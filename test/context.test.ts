@@ -29,3 +29,21 @@ test('getDesignContext tolerates malformed config files', async () => {
   const context = await getDesignContext({ cwd });
   assert.equal(context, '');
 });
+
+test('getDesignContext respects design-memory.config.json designSource', async () => {
+  const cwd = makeTempDir();
+  fs.writeFileSync(path.join(cwd, 'spec.md'), '# Alternate spec\nUse engraved inputs.');
+  fs.writeFileSync(
+    path.join(cwd, 'design-memory.config.json'),
+    JSON.stringify({
+      strictness: 'warn',
+      designSource: './spec.md',
+      include: [],
+      exclude: [],
+      ai: { providerPreference: ['local'], maxRetries: 1 },
+    }),
+  );
+
+  const context = await getDesignContext({ cwd });
+  assert.match(context, /Alternate spec/);
+});

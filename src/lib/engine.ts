@@ -9,6 +9,26 @@ export interface BrainConfig {
 
 type FetchLike = typeof fetch;
 
+function readProviderPreference() {
+  try {
+    const cwd = process.cwd();
+    const configPath = `${cwd}/design-memory.config.json`;
+    const fs = require('node:fs') as typeof import('node:fs');
+    if (!fs.existsSync(configPath)) {
+      return ['local', 'anthropic', 'openai'] as const;
+    }
+
+    const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as {
+      ai?: { providerPreference?: Array<'local' | 'anthropic' | 'openai'> };
+    };
+    return raw.ai?.providerPreference?.length
+      ? raw.ai.providerPreference
+      : (['local', 'anthropic', 'openai'] as const);
+  } catch {
+    return ['local', 'anthropic', 'openai'] as const;
+  }
+}
+
 async function isReachable(url: string, fetchFn: FetchLike) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 800);
@@ -24,24 +44,26 @@ async function isReachable(url: string, fetchFn: FetchLike) {
 }
 
 export async function detectAvailableBrain(fetchFn: FetchLike = fetch): Promise<BrainConfig | null> {
-  // 1. Check Ollama
-  if (await isReachable('http://localhost:11434/api/tags', fetchFn)) {
-    return { provider: 'ollama', baseUrl: 'http://localhost:11434/api/generate', model: 'llama3' };
+  const preferences = readProviderPreference();
+
+  if (preferences.includes('local')) {
+    if (await isReachable('http://localhost:11434/api/tags', fetchFn)) {
+      return { provider: 'ollama', baseUrl: 'http://localhost:11434/api/generate', model: 'llama3' };
+    }
+
+    if (await isReachable('http://localhost:1234/v1/models', fetchFn)) {
+      return { provider: 'lm-studio', baseUrl: 'http://localhost:1234/v1/chat/completions' };
+    }
   }
 
-  // 2. Check LM Studio
-  if (await isReachable('http://localhost:1234/v1/models', fetchFn)) {
-    return { provider: 'lm-studio', baseUrl: 'http://localhost:1234/v1/chat/completions' };
-  }
+  for (const preference of preferences) {
+    if (preference === 'openai' && process.env.OPENAI_API_KEY) {
+      return { provider: 'openai', apiKey: process.env.OPENAI_API_KEY, model: 'gpt-4o' };
+    }
 
-  // 3. Check OpenAI
-  if (process.env.OPENAI_API_KEY) {
-    return { provider: 'openai', apiKey: process.env.OPENAI_API_KEY, model: 'gpt-4o' };
-  }
-
-  // 4. Check Anthropics
-  if (process.env.ANTHROPIC_API_KEY) {
-    return { provider: 'anthropic', apiKey: process.env.ANTHROPIC_API_KEY, model: 'claude-3-5-sonnet-20240620' };
+    if (preference === 'anthropic' && process.env.ANTHROPIC_API_KEY) {
+      return { provider: 'anthropic', apiKey: process.env.ANTHROPIC_API_KEY, model: 'claude-3-5-sonnet-20240620' };
+    }
   }
 
   return null;

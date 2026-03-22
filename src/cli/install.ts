@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { writeDefaultConfig } from '../lib/config';
 
 export async function installHook() {
   const cwd = process.cwd();
@@ -15,14 +16,15 @@ export async function installHook() {
   }
 
   const hookPath = path.join(hooksDir, 'pre-commit');
-  const hookContent = `#!/bin/sh
+const hookContent = `#!/bin/sh
 echo "[Design Memory] Auditing staged files for design drift..."
 npx @derin/design-memory audit
 if [ $? -ne 0 ]; then
-  echo "[Design Memory] ❌ Commit rejected due to design violations."
+  echo "[Design Memory] ⚠️ Commit blocked. If this is a false positive, force the commit by running: git commit --no-verify"
   exit 1
 fi
 `;
+  const configPath = writeDefaultConfig(cwd);
 
   if (fs.existsSync(hookPath)) {
     const existing = fs.readFileSync(hookPath, 'utf-8');
@@ -38,4 +40,5 @@ fi
   }
 
   fs.chmodSync(hookPath, '755');
+  console.log(`[Design Memory] Config ready at ${configPath}.`);
 }

@@ -13,6 +13,24 @@ Pure TypeScript CLI binary. No frontend. No database. Pure logic.
 1. **init:** Installs Git pre-commit hook.
 2. **audit:** Manually triggers design drift analysis.
 3. **ghost:** Injects design enforcement rules into IDE AI instructions.
+4. **scan:** Runs a non-blocking audit against an existing GitHub pull request.
+
+## Canonical Config
+
+`init` writes `design-memory.config.json` if it does not already exist:
+
+```json
+{
+  "strictness": "warn",
+  "designSource": "./DESIGN.md",
+  "include": ["src/components/**/*.tsx", "src/app/**/*.tsx"],
+  "exclude": ["src/lib/**", "**/*.test.tsx", "**/*.test.ts"],
+  "ai": {
+    "providerPreference": ["local", "anthropic", "openai"],
+    "maxRetries": 1
+  }
+}
+```
 
 ## MCP / Skill Integration
 Natively compatible with Model Context Protocol (MCP).
@@ -59,6 +77,7 @@ Natively compatible with Model Context Protocol (MCP).
 ## CLI Commands
 - `npx @derin/design-memory init`: Setup the Git hook.
 - `npx @derin/design-memory audit`: Manually check staged files.
+- `npx @derin/design-memory scan --pr=123`: Audit a PR without blocking anything.
 - `npx @derin/design-memory ghost`: Configure IDE AI constraints.
 
 ## LLM Integration Instructions

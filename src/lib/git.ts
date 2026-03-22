@@ -1,4 +1,5 @@
 import { execSync } from 'child_process';
+import { readConfig, shouldAuditFile } from './config';
 
 const IGNORED_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', '.woff', '.woff2', '.ttf', '.otf', '.eot'];
 const IGNORED_FILES = ['package-lock.json', 'yarn.lock', 'pnpm-lock.yaml'];
@@ -8,6 +9,7 @@ export function getStagedDiff(
   exec: typeof execSync = execSync,
 ): string {
   try {
+    const config = readConfig(cwd);
     const stagedFiles = exec('git diff --cached --name-only', { encoding: 'utf-8', cwd })
       .split('\n')
       .map(f => f.trim())
@@ -17,7 +19,7 @@ export function getStagedDiff(
       const isLockfile = IGNORED_FILES.some(ignored => file.endsWith(ignored));
       const hasIgnoredExtension = IGNORED_EXTENSIONS.some(ext => file.toLowerCase().endsWith(ext));
       const isCodeFile = /\.(tsx?|jsx?|css|html)$/.test(file);
-      return !isLockfile && !hasIgnoredExtension && isCodeFile;
+      return !isLockfile && !hasIgnoredExtension && isCodeFile && shouldAuditFile(file, config);
     });
 
     if (filteredFiles.length === 0) {

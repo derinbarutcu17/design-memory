@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { readConfig } from './config';
 import { fetchFigmaFileBundle } from './figma/fetch-file';
 import { extractReferenceTokens } from './figma/extract-tokens';
 
@@ -51,8 +52,12 @@ function extractFigmaFileKey(config: Record<string, unknown>): string | null {
 export async function getDesignContext(options: DesignContextOptions = {}): Promise<string> {
   const cwd = options.cwd ?? process.cwd();
   const chunks: string[] = [];
+  const config = readConfig(cwd);
 
-  const designPath = findFirstExisting(cwd, ['design.md', 'DESIGN.md']);
+  const configuredDesignPath = path.resolve(cwd, config.designSource);
+  const designPath = fs.existsSync(configuredDesignPath)
+    ? configuredDesignPath
+    : findFirstExisting(cwd, ['design.md', 'DESIGN.md']);
   if (designPath) {
     chunks.push(`DESIGN SPECIFICATION (from ${path.basename(designPath)}):\n${readIfExists(designPath)}`);
   }
@@ -62,7 +67,7 @@ export async function getDesignContext(options: DesignContextOptions = {}): Prom
     chunks.push(`PROJECT RULES (from .cursorrules):\n${readIfExists(cursorRulesPath)}`);
   }
 
-  const configPath = findFirstExisting(cwd, ['design-memory.json', 'design-memory.config.json']);
+  const configPath = findFirstExisting(cwd, ['design-memory.config.json', 'design-memory.json']);
   if (configPath) {
     try {
       const config = JSON.parse(readIfExists(configPath)) as Record<string, unknown>;
