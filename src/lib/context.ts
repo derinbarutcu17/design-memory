@@ -3,6 +3,7 @@ import path from 'node:path';
 
 import { readConfig } from './config';
 import type { ReferenceSnapshot } from './types';
+import { normalizeDesignMarkdown } from './design-md/normalize';
 import { syncReferenceSnapshotFromFigma } from './figma/normalize-reference';
 import { normalizeStitchReference } from './stitch/normalize';
 
@@ -85,17 +86,5 @@ export async function resolveReferenceSnapshot(cwd = process.cwd()): Promise<Ref
     });
   }
 
-  return {
-    metadata: {
-      source: 'design-md',
-      versionLabel: path.basename(resolvedPath),
-      importedAt: new Date().toISOString(),
-      fileName: path.basename(resolvedPath),
-      tokenCount: 0,
-      componentCount: 0,
-    },
-    tokens: [],
-    components: [],
-    aliasMap: {},
-  };
+  return normalizeDesignMarkdown(markdown, path.basename(resolvedPath));
 }

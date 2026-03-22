@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { getStagedDiff } from './git';
+import { filterAuditableFiles, getStagedDiff, getStagedFileContent, isAuditableCodeFile } from './git';
 import { resolveReferenceSnapshot } from './context';
 import { detectAvailableBrain, promptBrain } from './engine';
 import { readConfig, type DesignMemoryConfig, type RuleId, type RuleSeverity } from './config';
@@ -12,6 +12,7 @@ import { hashParts, normalizeForMatch, prettyJson, toPascalCase, uniqueStrings }
 
 type AuditDependencies = {
   getDiff?: typeof getStagedDiff;
+  getFileContent?: typeof getStagedFileContent;
   getSnapshot?: typeof loadReferenceSnapshot;
   resolveSnapshot?: typeof resolveReferenceSnapshot;
   getBrain?: typeof detectAvailableBrain;
@@ -32,6 +33,7 @@ type FileDiff = {
   filePath: string;
   diff: string;
   addedLines: string[];
+  fullContent?: string | null;
 };
 
 type Mapping = {
@@ -57,7 +59,11 @@ function toIssueType(ruleId: RuleId): DriftIssue['issueType'] {
   return 'hardcoded-style';
 }
 
-function parseDiffIntoFiles(diff: string): FileDiff[] {
+function getIssueKey(issue: Pick<DriftIssue, 'ruleId' | 'componentName' | 'filePath'>) {
+  return `${normalizeForMatch(issue.componentName)}::${issue.ruleId}::${issue.filePath}`;
+}
+
+function parseDiffIntoFiles(diff: string, config: DesignMemoryConfig, cwd = process.cwd()): FileDiff[] {
   return diff
     .split(/^FILE:\s+/m)
     .map((block) => block.trim())
@@ -76,7 +82,9 @@ function parseDiffIntoFiles(diff: string): FileDiff[] {
         diff: body,
         addedLines,
       };
-    });
+    })
+    .filter((file) => isAuditableCodeFile(file.filePath) && filterAuditableFiles([file.filePath], cwd).includes(file.filePath))
+    .filter((file) => file.addedLines.length > 0);
 }
 
 function getFileStem(filePath: string) {
@@ -88,7 +96,7 @@ function matchComponents(snapshot: ReferenceSnapshot, files: FileDiff[]): Mappin
 
   for (const file of files) {
     const stem = normalizeForMatch(getFileStem(file.filePath));
-    const content = file.addedLines.join('\n');
+    const content = file.fullContent ?? file.addedLines.join('\n');
     const contentMatch = normalizeForMatch(content);
 
     snapshot.components.forEach((component, index) => {
@@ -194,6 +202,7 @@ function findDeterministicIssues(snapshot: ReferenceSnapshot, files: FileDiff[],
     const fileMappings = mappings.filter((mapping) => mapping.filePath === file.filePath);
     const defaultComponentName = fileMappings[0]?.componentName ?? (toPascalCase(getFileStem(file.filePath)) || 'UnknownComponent');
     const rawText = file.addedLines.join('\n');
+    const fullText = file.fullContent ?? rawText;
 
     const rawHexes = Array.from(new Set(rawText.match(/#(?:[0-9a-fA-F]{3,8})\b/g) ?? []));
     for (const hex of rawHexes) {
@@ -265,7 +274,8 @@ function findDeterministicIssues(snapshot: ReferenceSnapshot, files: FileDiff[],
 
     for (const mapping of fileMappings) {
       const component = snapshot.components[mapping.referenceIndex];
-      const joinedLines = file.addedLines.join('\n');
+      const joinedLines = rawText;
+      const evaluatedText = fullText;
 
       for (const pattern of component.disallowedPatterns ?? []) {
         if (joinedLines.includes(pattern)) {
@@ -282,13 +292,13 @@ function findDeterministicIssues(snapshot: ReferenceSnapshot, files: FileDiff[],
       }
 
       for (const pattern of component.requiredPatterns ?? []) {
-        if (joinedLines && !joinedLines.includes(pattern)) {
+        if (joinedLines && !evaluatedText.includes(pattern)) {
           pushIssue(issues, createIssue(config, {
             ruleId: 'component.required-pattern',
             componentName: component.name,
             filePath: file.filePath,
-            expected: `Include required pattern ${pattern} for ${component.name}.`,
-            found: 'Pattern missing from changed code.',
+            expected: `Include required pattern ${pattern} for ${component.name} somewhere in the file.`,
+            found: 'Pattern missing from the evaluated file content.',
             evidenceSnippet: joinedLines,
             suggestedAction: `Add the required pattern ${pattern} or align the component with the reference snapshot.`,
             confidence: 0.87,
@@ -298,14 +308,15 @@ function findDeterministicIssues(snapshot: ReferenceSnapshot, files: FileDiff[],
 
       for (const state of component.states ?? []) {
         const statePattern = `${state.name}:`;
-        const hasAnyState = joinedLines.includes(statePattern) || joinedLines.includes(`data-[state=${state.name}]`) || joinedLines.includes(`aria-${state.name}`);
-        if (!hasAnyState) {
+        const hasAnyState = evaluatedText.includes(statePattern) || evaluatedText.includes(`data-[state=${state.name}]`) || evaluatedText.includes(`aria-${state.name}`);
+        const touchedStateRegion = joinedLines.length > 0;
+        if (!hasAnyState && touchedStateRegion) {
           pushIssue(issues, createIssue(config, {
             ruleId: 'component.missing-state',
             componentName: component.name,
             filePath: file.filePath,
             expected: `Provide explicit ${state.name} state support for ${component.name}.`,
-            found: `${state.name} state not found in changed code.`,
+            found: `${state.name} state not found in the evaluated file content.`,
             evidenceSnippet: joinedLines,
             suggestedAction: `Add the ${state.name} state styling/behavior expected by the reference snapshot.`,
             confidence: 0.82,
@@ -315,7 +326,7 @@ function findDeterministicIssues(snapshot: ReferenceSnapshot, files: FileDiff[],
 
       for (const variant of component.variants ?? []) {
         const variantName = normalizeForMatch(variant.name);
-        if (variantName && joinedLines.toLowerCase().includes('variant') && !normalizeForMatch(joinedLines).includes(variantName)) {
+        if (variantName && joinedLines.toLowerCase().includes('variant') && !normalizeForMatch(evaluatedText).includes(variantName)) {
           pushIssue(issues, createIssue(config, {
             ruleId: 'component.variant-drift',
             componentName: component.name,
@@ -335,8 +346,9 @@ function findDeterministicIssues(snapshot: ReferenceSnapshot, files: FileDiff[],
           continue;
         }
 
-        const matchesAnyAlias = matcher.aliases.some((alias) => normalizeForMatch(joinedLines).includes(normalizeForMatch(alias)));
-        if (!matchesAnyAlias) {
+        const matchesAnyAlias = matcher.aliases.some((alias) => normalizeForMatch(evaluatedText).includes(normalizeForMatch(alias)));
+        const changedAnyTokenishThing = matcher.aliases.some((alias) => normalizeForMatch(joinedLines).includes(normalizeForMatch(alias))) || /(bg-|text-|border-|ring-|rounded-|shadow-|#)/.test(joinedLines);
+        if (!matchesAnyAlias && changedAnyTokenishThing) {
           pushIssue(issues, createIssue(config, {
             ruleId: 'token.mismatch',
             componentName: component.name,
@@ -395,6 +407,7 @@ function applyReviewAndBaselineState(issues: DriftIssue[], cwd: string) {
   const baseline = loadBaseline(cwd);
   const previousRun = loadLatestRun(cwd);
   const previousFingerprints = new Set(previousRun?.issues.filter((issue) => ['new', 'remaining', 'reopened', 'intentional', 'ignored'].includes(issue.status)).map((issue) => issue.fingerprint) ?? []);
+  const previousIssueKeys = new Map((previousRun?.issues ?? []).map((issue) => [getIssueKey(issue), issue.fingerprint]));
   const baselineFingerprints = new Set(Object.keys(baseline?.acceptedFingerprints ?? {}));
 
   return issues.map((issue) => {
@@ -404,6 +417,10 @@ function applyReviewAndBaselineState(issues: DriftIssue[], cwd: string) {
     }
     if (review?.status === 'ignore') {
       return { ...issue, status: 'ignored' as const };
+    }
+    const previousFingerprintForKey = previousIssueKeys.get(getIssueKey(issue));
+    if (previousFingerprintForKey && previousFingerprintForKey !== issue.fingerprint) {
+      return { ...issue, status: 'reopened' as const };
     }
     if (previousFingerprints.has(issue.fingerprint) || baselineFingerprints.has(issue.fingerprint)) {
       return { ...issue, status: 'remaining' as const };
@@ -484,8 +501,10 @@ export async function scanPullRequest(prNumber: number, cwd = process.cwd(), opt
 
 export async function runAudit(deps: AuditDependencies = {}, options: AuditOptions = {}) {
   const cwd = options.cwd ?? process.cwd();
+  const mode = options.mode ?? 'staged';
   const config = readConfig(cwd);
   const getDiff = deps.getDiff ?? ((targetCwd?: string) => getStagedDiff(targetCwd ?? cwd));
+  const getFileContent = deps.getFileContent ?? ((filePath: string, targetCwd?: string) => getStagedFileContent(filePath, targetCwd ?? cwd));
   const getSnapshot = deps.getSnapshot ?? loadReferenceSnapshot;
   const resolveSnapshot = deps.resolveSnapshot ?? resolveReferenceSnapshot;
   const getBrain = deps.getBrain ?? detectAvailableBrain;
@@ -510,7 +529,10 @@ export async function runAudit(deps: AuditDependencies = {}, options: AuditOptio
     snapshot = await resolveSnapshot(cwd);
   }
 
-  const files = parseDiffIntoFiles(diff);
+  const files = parseDiffIntoFiles(diff, config, cwd).map((file) => ({
+    ...file,
+    fullContent: mode === 'staged' ? getFileContent(file.filePath, cwd) : null,
+  }));
   const mappings = matchComponents(snapshot, files);
   let issues = findDeterministicIssues(snapshot, files, mappings, config);
   issues = applyReviewAndBaselineState(issues, cwd);
@@ -578,7 +600,7 @@ export async function runAudit(deps: AuditDependencies = {}, options: AuditOptio
   }
 
   const blockingIssues = issues.filter((issue) => issue.severity === 'error' && (issue.status === 'new' || issue.status === 'reopened'));
-  if (blockingIssues.length > 0 && options.mode !== 'scan' && config.strictness === 'block') {
+  if (blockingIssues.length > 0 && mode !== 'scan' && config.strictness === 'block') {
     console.warn('\x1b[33m%s\x1b[0m', '\n[Design Memory] ⚠️ Commit blocked. If this is a false positive, force the commit by running: git commit --no-verify');
     exit(1);
     return;
@@ -595,7 +617,7 @@ export function loadLatestRunJson(cwd = process.cwd()) {
   return latest;
 }
 
-export function reviewFinding(fingerprint: string, status: 'valid' | 'intentional' | 'ignore', note?: string, cwd = process.cwd()) {
+export function reviewFinding(fingerprint: string, status: 'intentional' | 'ignore', note?: string, cwd = process.cwd()) {
   const { saveReview } = require('./state') as typeof import('./state');
   return saveReview({ fingerprint, status, note }, cwd);
 }

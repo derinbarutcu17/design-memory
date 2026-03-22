@@ -1,6 +1,6 @@
 # @derin/design-memory
 
-Design Memory blocks net-new design-system drift in React/Tailwind PRs using deterministic checks, reference snapshots, and AI only for edge cases.
+Design Memory blocks net-new design policy violations and reference mismatches in React/Tailwind PRs with deterministic checks first.
 
 This repo is currently documented as a local-first CLI tool. It is not published to npm yet, so the primary install path is local development plus `npm link`.
 
@@ -111,7 +111,7 @@ All design sources normalize into `.design-memory/reference-snapshot.json`.
 
 Supported sources:
 
-- `design-md`
+- `design-md` with lightweight token/component extraction from local markdown
 - `stitch-markdown`
 - `figma`
 

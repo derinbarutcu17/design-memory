@@ -189,3 +189,25 @@ test('reviewFinding stores intentional status and prevents blocking on unchanged
 
   assert.equal(exitCode, 0);
 });
+
+test('runAudit uses full file content for required pattern checks instead of only added lines', async () => {
+  const cwd = makeTempDir();
+  writeConfig(cwd);
+  writeSnapshot(cwd);
+
+  let exitCode: number | undefined;
+  const exit = ((code?: number) => {
+    exitCode = code;
+    return undefined as never;
+  }) as typeof process.exit;
+
+  await runAudit({
+    getDiff: () => 'FILE: src/components/Button.tsx\n+ const changed = true\n',
+    getFileContent: () => 'export function Button() { return <button className="bg-primary hover:bg-primary" />; }',
+    exit,
+  }, { cwd });
+
+  assert.equal(exitCode, 0);
+  const latestRun = JSON.parse(fs.readFileSync(path.join(cwd, '.design-memory', 'latest-run.json'), 'utf-8')) as { issues: Array<{ ruleId: string }> };
+  assert.ok(!latestRun.issues.some((issue) => issue.ruleId === 'component.required-pattern'));
+});

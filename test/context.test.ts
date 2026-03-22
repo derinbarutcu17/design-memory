@@ -24,7 +24,7 @@ test('getDesignContext reads DESIGN.md and .cursorrules from cwd', async () => {
 
 test('resolveReferenceSnapshot loads design-md files from config.reference.path', async () => {
   const cwd = makeTempDir();
-  fs.writeFileSync(path.join(cwd, 'spec.md'), '# Alternate spec\nUse engraved inputs.');
+  fs.writeFileSync(path.join(cwd, 'spec.md'), '# Alternate spec\n## Button\nUse `bg-primary` and rounded corners.\n');
   fs.writeFileSync(
     path.join(cwd, 'design-memory.config.json'),
     JSON.stringify({
@@ -58,6 +58,7 @@ test('resolveReferenceSnapshot loads design-md files from config.reference.path'
   const snapshot = await resolveReferenceSnapshot(cwd);
   assert.equal(snapshot.metadata.source, 'design-md');
   assert.equal(snapshot.metadata.fileName, 'spec.md');
+  assert.ok((snapshot.metadata.componentCount ?? 0) > 0);
 });
 
 test('resolveReferenceSnapshot throws when the configured source file is missing', async () => {

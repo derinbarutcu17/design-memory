@@ -1,6 +1,6 @@
 export type Severity = 'error' | 'warn';
 
-export type ReviewStatus = 'valid' | 'intentional' | 'ignore';
+export type ReviewStatus = 'intentional' | 'ignore';
 export type DriftStatus = 'new' | 'remaining' | 'resolved' | 'reopened' | 'intentional' | 'ignored';
 export type DetectionSource = 'deterministic' | 'llm-assisted';
 

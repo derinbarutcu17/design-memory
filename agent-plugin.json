@@ -1,6 +1,6 @@
 {
   "name": "design_memory_audit",
-  "description": "Executes a pre-commit design drift analysis on the current repository's staged files. Blocks commits that violate design.md.",
+  "description": "Executes a local staged-file design policy audit against the synced reference snapshot for the current repository.",
   "inputs": {
     "type": "object",
     "properties": {
@@ -17,5 +17,5 @@
     "required": [],
     "additionalProperties": false
   },
-  "execution": "npx @derin/design-memory audit"
+  "execution": "node dist/cli/index.js audit"
 }

@@ -10,7 +10,7 @@ export const program = new Command();
 
 program
   .name('design-memory')
-  .description('Blocks net-new design-system drift in React/Tailwind PRs using deterministic checks, reference snapshots, and AI only for edge cases.')
+  .description('Blocks net-new design policy violations and reference mismatches in React/Tailwind PRs with deterministic checks first.')
   .version('0.2.0');
 
 export const auditCommand = program
@@ -85,10 +85,10 @@ export const reviewCommand = program
   .command('review')
   .description('List or update review decisions for the latest run')
   .option('--fingerprint <value>', 'Finding fingerprint to review')
-  .option('--status <value>', 'Review status: valid, intentional, or ignore')
+  .option('--status <value>', 'Review status: intentional or ignore')
   .option('--note <value>', 'Optional note for the review decision')
   .option('--json', 'Print machine-readable JSON output')
-  .action(async ({ fingerprint, status, note, json }: { fingerprint?: string; status?: 'valid' | 'intentional' | 'ignore'; note?: string; json?: boolean }) => {
+  .action(async ({ fingerprint, status, note, json }: { fingerprint?: string; status?: 'intentional' | 'ignore'; note?: string; json?: boolean }) => {
     try {
       if (fingerprint && status) {
         const review = reviewFinding(fingerprint, status, note);
