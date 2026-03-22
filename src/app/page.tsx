@@ -149,8 +149,8 @@ export default async function Home({
                     Design <span className="text-[#89ceff]/85">Memory</span>
                   </h2>
                   <p className="max-w-2xl text-lg font-light leading-relaxed text-slate-400">
-                    Sync the Figma reference, inspect the latest implementation PR, and hand
-                    back a clean Fix brief.
+                    Sync a Figma or Stitch design reference, inspect the latest implementation
+                    PR, and hand back a clean Fix brief.
                   </p>
                 </div>
                 <div className="flex flex-wrap gap-3 pt-2">
@@ -243,7 +243,9 @@ export default async function Home({
                             {project.repoOwner}/{project.repoName}
                           </p>
                           <p className="mt-1 text-xs text-slate-600">
-                            Figma connected via URL · audit workflow enabled
+                            {project.referenceProvider === "stitch"
+                              ? "Stitch DESIGN.md workflow enabled"
+                              : "Figma workflow enabled"}
                           </p>
                         </div>
                         <span className="rounded-full border border-white/[0.06] px-3 py-1 text-[10px] font-bold uppercase tracking-[0.18em] text-slate-300">
@@ -317,59 +319,83 @@ export default async function Home({
                       Create Project
                     </h3>
                     <p className="text-xs font-light text-slate-500">
-                      Connect your design reference and implementation repo.
+                      Connect either Figma or Stitch as the design reference for a GitHub repo.
                     </p>
                   </div>
 
                   <form action={createProjectAction} className="space-y-6">
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
-                      Project Name
-                    </label>
-                    <input
-                      name="name"
-                      required
-                      placeholder="e.g. Project Obsidian"
-                      className="w-full rounded-lg border border-white/[0.06] bg-[#1e2124]/50 px-4 py-3 text-sm text-slate-100 outline-none transition-all focus:border-[#89ceff]/40 focus:ring-1 focus:ring-[#89ceff]/20"
-                    />
-                  </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                        Project Name
+                      </label>
+                      <input
+                        name="name"
+                        required
+                        placeholder="e.g. Project Obsidian"
+                        className="w-full rounded-lg border border-white/[0.06] bg-[#1e2124]/50 px-4 py-3 text-sm text-slate-100 outline-none transition-all focus:border-[#89ceff]/40 focus:ring-1 focus:ring-[#89ceff]/20"
+                      />
+                    </div>
 
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
-                      Figma URL
-                    </label>
-                    <input
-                      name="figmaUrl"
-                      required
-                      placeholder="https://www.figma.com/design/..."
-                      className="w-full rounded-lg border border-white/[0.06] bg-[#1e2124]/50 px-4 py-3 text-sm text-slate-100 outline-none transition-all focus:border-[#89ceff]/40 focus:ring-1 focus:ring-[#89ceff]/20"
-                    />
-                  </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                        Reference Provider
+                      </label>
+                      <select
+                        name="referenceProvider"
+                        defaultValue="figma"
+                        className="w-full rounded-lg border border-white/[0.06] bg-[#1e2124]/50 px-4 py-3 text-sm text-slate-100 outline-none transition-all focus:border-[#89ceff]/40 focus:ring-1 focus:ring-[#89ceff]/20"
+                      >
+                        <option value="figma">Figma</option>
+                        <option value="stitch">Stitch DESIGN.md</option>
+                      </select>
+                    </div>
 
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
-                      GitHub Repo URL
-                    </label>
-                    <input
-                      name="repoUrl"
-                      required
-                      placeholder="https://github.com/owner/repo"
-                      className="w-full rounded-lg border border-white/[0.06] bg-[#1e2124]/50 px-4 py-3 text-sm text-slate-100 outline-none transition-all focus:border-[#89ceff]/40 focus:ring-1 focus:ring-[#89ceff]/20"
-                    />
-                  </div>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                        Figma URL
+                      </label>
+                      <input
+                        name="figmaUrl"
+                        placeholder="Required for Figma-backed projects"
+                        className="w-full rounded-lg border border-white/[0.06] bg-[#1e2124]/50 px-4 py-3 text-sm text-slate-100 outline-none transition-all focus:border-[#89ceff]/40 focus:ring-1 focus:ring-[#89ceff]/20"
+                      />
+                    </div>
 
-                  <div className="space-y-4">
-                    <button
-                      type="submit"
-                      className="w-full rounded-lg bg-[#89ceff] py-3.5 text-xs font-bold uppercase tracking-[0.18em] text-[#001e2f] transition-all hover:-translate-y-0.5 hover:bg-[#bce4ff]"
-                    >
-                      Create Project
-                    </button>
-                    <p className="text-center text-[10px] font-medium uppercase tracking-[0.18em] text-slate-600">
-                      Real links only · no fake setup steps
-                    </p>
-                  </div>
-                </form>
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                        Stitch URL
+                      </label>
+                      <input
+                        name="stitchUrl"
+                        placeholder="Optional provenance for Stitch-backed projects"
+                        className="w-full rounded-lg border border-white/[0.06] bg-[#1e2124]/50 px-4 py-3 text-sm text-slate-100 outline-none transition-all focus:border-[#89ceff]/40 focus:ring-1 focus:ring-[#89ceff]/20"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <label className="text-[10px] font-bold uppercase tracking-[0.2em] text-slate-500">
+                        GitHub Repo URL
+                      </label>
+                      <input
+                        name="repoUrl"
+                        required
+                        placeholder="https://github.com/owner/repo"
+                        className="w-full rounded-lg border border-white/[0.06] bg-[#1e2124]/50 px-4 py-3 text-sm text-slate-100 outline-none transition-all focus:border-[#89ceff]/40 focus:ring-1 focus:ring-[#89ceff]/20"
+                      />
+                    </div>
+
+                    <div className="space-y-4">
+                      <button
+                        type="submit"
+                        className="w-full rounded-lg bg-[#89ceff] py-3.5 text-xs font-bold uppercase tracking-[0.18em] text-[#001e2f] transition-all hover:-translate-y-0.5 hover:bg-[#bce4ff]"
+                      >
+                        Create Project
+                      </button>
+                      <p className="text-center text-[10px] font-medium uppercase tracking-[0.18em] text-slate-600">
+                        Figma or Stitch → GitHub PR audit
+                      </p>
+                    </div>
+                  </form>
               </div>
             </div>
           </div>

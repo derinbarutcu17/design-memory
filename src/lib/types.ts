@@ -5,11 +5,13 @@ export type ReviewStatus = "valid" | "intentional" | "ignore";
 export type Project = {
   id: string;
   name: string;
+  referenceProvider: "figma" | "stitch";
   figmaUrl?: string;
+  stitchUrl?: string;
   repoUrl?: string;
   repoOwner: string;
   repoName: string;
-  figmaFileKey: string;
+  figmaFileKey?: string;
   createdAt: string;
   updatedAt: string;
 };
@@ -53,6 +55,7 @@ export type ReferenceSnapshot = {
     source: string;
     versionLabel: string;
     figmaFileKey?: string;
+    stitchUrl?: string;
     importedAt?: string;
     fileName?: string;
     lastModified?: string;

@@ -17,7 +17,7 @@ import {
   listReviewsForAuditRun,
 } from "@/lib/store";
 import { makeId } from "@/lib/utils";
-import type { AuditRun, PullRequestDetails, ReferenceSnapshotRecord, ReviewStatus } from "@/lib/types";
+import type { AuditRun, PullRequestDetails, ReferenceSnapshotRecord } from "@/lib/types";
 
 export type AuditWorkflowResult = {
   projectId: string;
@@ -36,13 +36,36 @@ export async function syncProjectReference(projectId: string) {
     throw new Error("Project not found.");
   }
 
+  if (details.project.referenceProvider !== "figma" || !details.project.figmaFileKey) {
+    throw new Error("Live sync is only available for Figma-backed projects.");
+  }
+
   const snapshot = await syncReferenceSnapshotFromFigma(details.project.figmaFileKey);
   return createReferenceSnapshot(projectId, snapshot);
 }
 
-export async function resolveAuditReferenceSnapshot(projectId: string, figmaFileKey: string) {
+export async function resolveAuditReferenceSnapshot(
+  projectId: string,
+  project: { referenceProvider: "figma" | "stitch"; figmaFileKey?: string },
+) {
+  if (project.referenceProvider === "stitch") {
+    const cachedSnapshot = getLatestSnapshotBySourceType(projectId, "stitch-design-md");
+    if (!cachedSnapshot) {
+      throw new Error("Import a Stitch DESIGN.md reference before running a PR audit.");
+    }
+
+    return {
+      snapshotRecord: cachedSnapshot,
+      referenceSyncMode: "cached" as const,
+    };
+  }
+
+  if (!project.figmaFileKey) {
+    throw new Error("This Figma-backed project is missing a Figma file key.");
+  }
+
   try {
-    const snapshot = await syncReferenceSnapshotFromFigma(figmaFileKey);
+    const snapshot = await syncReferenceSnapshotFromFigma(project.figmaFileKey);
     return {
       snapshotRecord: createReferenceSnapshot(projectId, snapshot),
       referenceSyncMode: "live" as const,
@@ -138,7 +161,7 @@ export async function runAuditForProject(
 
   const latestSnapshotResult = await resolveAuditReferenceSnapshot(
     projectId,
-    details.project.figmaFileKey,
+    details.project,
   );
   const pr = await fetchPullRequest(details.project.repoOwner, details.project.repoName, prNumber);
 

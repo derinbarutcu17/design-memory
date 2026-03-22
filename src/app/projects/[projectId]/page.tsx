@@ -5,15 +5,17 @@ import {
   checkLatestPullRequestAction,
   importReferenceAction,
   importSampleReferenceAction,
+  importStitchMarkdownAction,
   runAuditForSelectedPullRequestAction,
   syncFigmaReferenceAction,
+  uploadStitchMarkdownAction,
   updateProjectAction,
 } from "@/app/actions";
 import { Surface } from "@/components/ui";
 import { hasGitHubAccessToken, listOpenPullRequests } from "@/lib/github";
 import { hasFigmaAccessToken } from "@/lib/figma/client";
 import { sampleReferenceSnapshot } from "@/lib/sample-reference";
-import { getProjectDetails } from "@/lib/store";
+import { getLatestSnapshotBySourceType, getProjectDetails } from "@/lib/store";
 import { formatDate, prettyJson } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
@@ -30,6 +32,8 @@ export default async function ProjectPage({
   const details = getProjectDetails(projectId);
   const hasFigmaToken = hasFigmaAccessToken();
   const hasGitHubToken = hasGitHubAccessToken();
+  const stitchSnapshot = details ? getLatestSnapshotBySourceType(projectId, "stitch-design-md") : null;
+  const figmaSnapshot = details ? getLatestSnapshotBySourceType(projectId, "figma-api") : null;
   let openPullRequests: Awaited<ReturnType<typeof listOpenPullRequests>> = [];
 
   if (details) {
@@ -47,6 +51,18 @@ export default async function ProjectPage({
     notFound();
   }
 
+  const isStitchProject = details.project.referenceProvider === "stitch";
+  const activeSnapshot = isStitchProject ? stitchSnapshot ?? details.latestSnapshot : figmaSnapshot ?? details.latestSnapshot;
+  const hasReadyReference = isStitchProject ? Boolean(stitchSnapshot) : hasFigmaToken;
+  const canRunAudit = hasGitHubToken && hasReadyReference;
+  const referenceLabel = isStitchProject ? "Stitch source connected" : "Figma source connected";
+  const auditDescription = isStitchProject
+    ? "Design Memory will use the latest imported Stitch DESIGN.md reference, inspect the latest open PR in the connected repo, and generate a Fix brief with supporting drift evidence."
+    : "Design Memory will sync the latest Figma truth source, inspect the latest open PR in the connected repo, and generate a Fix brief with supporting drift evidence.";
+  const snapshotEmptyMessage = isStitchProject
+    ? "No Stitch DESIGN.md snapshot yet. Upload or paste a DESIGN.md file above before running a PR audit."
+    : "No reference snapshot yet. The normal path is to sync from Figma using the saved file key. Fallback JSON import is still available above if you need it.";
+
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,_#05121d,_#020617)] px-6 py-10 text-white">
       <div className="mx-auto flex max-w-7xl flex-col gap-6">
@@ -59,7 +75,7 @@ export default async function ProjectPage({
               {details.project.name}
             </h1>
             <p className="mt-3 text-slate-300">
-              {details.project.repoOwner}/{details.project.repoName} · Figma source connected
+              {details.project.repoOwner}/{details.project.repoName} · {referenceLabel}
             </p>
           </div>
           <Link
@@ -93,10 +109,30 @@ export default async function ProjectPage({
             <form action={updateProjectAction} className="mt-6 space-y-4">
               <input type="hidden" name="projectId" value={details.project.id} />
               <label className="block">
+                <span className="mb-2 block text-sm text-slate-300">Reference provider</span>
+                <select
+                  name="referenceProvider"
+                  defaultValue={details.project.referenceProvider}
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition focus:border-sky-400/60"
+                >
+                  <option value="figma">Figma</option>
+                  <option value="stitch">Stitch DESIGN.md</option>
+                </select>
+              </label>
+              <label className="block">
                 <span className="mb-2 block text-sm text-slate-300">Figma URL</span>
                 <input
                   name="figmaUrl"
-                  defaultValue={details.project.figmaUrl}
+                  defaultValue={details.project.figmaUrl ?? ""}
+                  className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition focus:border-sky-400/60"
+                />
+              </label>
+              <label className="block">
+                <span className="mb-2 block text-sm text-slate-300">Stitch URL</span>
+                <input
+                  name="stitchUrl"
+                  defaultValue={details.project.stitchUrl ?? ""}
+                  placeholder="Optional provenance for Stitch-backed projects"
                   className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-white outline-none transition focus:border-sky-400/60"
                 />
               </label>
@@ -118,52 +154,126 @@ export default async function ProjectPage({
           </Surface>
 
           <Surface>
-            <div className="flex items-start justify-between gap-4">
-              <div>
-                <p className="text-xs uppercase tracking-[0.22em] text-slate-400">
-                  Figma reference
-                </p>
-                <h2 className="mt-2 text-2xl font-semibold text-white">
-                  Sync the design reference from Figma
-                </h2>
-                <p className="mt-3 max-w-xl text-sm leading-7 text-slate-300">
-                  Normal workflow: use the saved Figma file key and sync straight from the
-                  Figma API. Manual JSON import stays below as a fallback or debug path.
-                </p>
-              </div>
-            </div>
-            <div className="mt-6 rounded-[28px] border border-white/8 bg-white/[0.03] p-5">
-              <div className="flex flex-wrap items-center justify-between gap-4">
-                <div>
-                  <p className="text-sm text-slate-300">
-                    Figma URL <span className="font-mono text-white">{details.project.figmaUrl}</span>
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {hasFigmaToken
-                      ? "Figma token ready."
-                      : "Figma token missing. Save it in Auth settings or set FIGMA_ACCESS_TOKEN."}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {hasGitHubToken
-                      ? "GitHub token ready."
-                      : "GitHub token missing. Save it in Auth settings or set GITHUB_TOKEN / GH_TOKEN / GITHUB_PAT."}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    Parsed file key <span className="font-mono">{details.project.figmaFileKey}</span>
-                  </p>
+            {isStitchProject ? (
+              <>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.22em] text-slate-400">
+                      Stitch reference
+                    </p>
+                    <h2 className="mt-2 text-2xl font-semibold text-white">
+                      Import the design reference from Stitch
+                    </h2>
+                    <p className="mt-3 max-w-xl text-sm leading-7 text-slate-300">
+                      Normal workflow: export or copy the project DESIGN.md from Stitch and
+                      import it here. Manual JSON import stays below as a fallback or debug path.
+                    </p>
+                  </div>
                 </div>
-                <form action={syncFigmaReferenceAction}>
+                <div className="mt-6 rounded-[28px] border border-white/8 bg-white/[0.03] p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm text-slate-300">
+                        Stitch URL{" "}
+                        <span className="font-mono text-white">{details.project.stitchUrl ?? "Not set"}</span>
+                      </p>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {hasGitHubToken
+                          ? "GitHub token ready."
+                          : "GitHub token missing. Save it in Auth settings or set GITHUB_TOKEN / GH_TOKEN / GITHUB_PAT."}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-500">
+                        Import a fresh DESIGN.md whenever the Stitch design system changes.
+                      </p>
+                    </div>
+                    <form action={uploadStitchMarkdownAction} className="flex flex-wrap items-center gap-3">
+                      <input type="hidden" name="projectId" value={details.project.id} />
+                      <input
+                        type="file"
+                        name="designMarkdown"
+                        accept=".md,text/markdown"
+                        className="max-w-[220px] text-sm text-slate-300 file:mr-3 file:rounded-full file:border-0 file:bg-sky-500/15 file:px-4 file:py-2 file:text-sm file:font-medium file:text-sky-100"
+                      />
+                      <button
+                        type="submit"
+                        className="rounded-full bg-sky-500 px-5 py-3 font-medium text-slate-950 transition hover:bg-sky-400"
+                      >
+                        Upload DESIGN.md
+                      </button>
+                    </form>
+                  </div>
+                </div>
+                <form action={importStitchMarkdownAction} className="mt-4 space-y-4">
                   <input type="hidden" name="projectId" value={details.project.id} />
+                  <label className="block">
+                    <span className="mb-2 block text-sm text-slate-300">
+                      Paste DESIGN.md
+                    </span>
+                    <textarea
+                      name="markdownContent"
+                      placeholder="Paste the exported Stitch DESIGN.md contents here..."
+                      className="min-h-72 w-full rounded-[28px] border border-white/10 bg-[#020817] px-4 py-4 font-mono text-sm text-slate-200 outline-none transition focus:border-sky-400/60"
+                    />
+                  </label>
                   <button
                     type="submit"
-                    disabled={!hasFigmaToken}
-                    className="rounded-full bg-sky-500 px-5 py-3 font-medium text-slate-950 transition hover:bg-sky-400"
+                    className="rounded-full bg-white px-5 py-3 font-medium text-slate-950 transition hover:bg-slate-100"
                   >
-                    Sync from Figma
+                    Import Stitch DESIGN.md
                   </button>
                 </form>
-              </div>
-            </div>
+              </>
+            ) : (
+              <>
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.22em] text-slate-400">
+                      Figma reference
+                    </p>
+                    <h2 className="mt-2 text-2xl font-semibold text-white">
+                      Sync the design reference from Figma
+                    </h2>
+                    <p className="mt-3 max-w-xl text-sm leading-7 text-slate-300">
+                      Normal workflow: use the saved Figma file key and sync straight from the
+                      Figma API. Manual JSON import stays below as a fallback or debug path.
+                    </p>
+                  </div>
+                </div>
+                <div className="mt-6 rounded-[28px] border border-white/8 bg-white/[0.03] p-5">
+                  <div className="flex flex-wrap items-center justify-between gap-4">
+                    <div>
+                      <p className="text-sm text-slate-300">
+                        Figma URL{" "}
+                        <span className="font-mono text-white">{details.project.figmaUrl ?? "Not set"}</span>
+                      </p>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {hasFigmaToken
+                          ? "Figma token ready."
+                          : "Figma token missing. Save it in Auth settings or set FIGMA_ACCESS_TOKEN."}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-500">
+                        {hasGitHubToken
+                          ? "GitHub token ready."
+                          : "GitHub token missing. Save it in Auth settings or set GITHUB_TOKEN / GH_TOKEN / GITHUB_PAT."}
+                      </p>
+                      <p className="mt-1 text-sm text-slate-500">
+                        Parsed file key <span className="font-mono">{details.project.figmaFileKey ?? "Missing"}</span>
+                      </p>
+                    </div>
+                    <form action={syncFigmaReferenceAction}>
+                      <input type="hidden" name="projectId" value={details.project.id} />
+                      <button
+                        type="submit"
+                        disabled={!hasFigmaToken}
+                        className="rounded-full bg-sky-500 px-5 py-3 font-medium text-slate-950 transition hover:bg-sky-400"
+                      >
+                        Sync from Figma
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              </>
+            )}
 
             <div className="mt-6 flex items-center justify-between gap-4">
               <div>
@@ -216,24 +326,24 @@ export default async function ProjectPage({
             <h2 className="mt-2 text-2xl font-semibold text-white">
               What the current design snapshot contains
             </h2>
-            {details.latestSnapshot ? (
+            {activeSnapshot ? (
               <div className="mt-6 space-y-5">
                 <div className="rounded-3xl border border-white/8 bg-white/[0.03] p-4">
                   <p className="text-sm text-slate-300">
-                    Source: {details.latestSnapshot.sourceType}
+                    Source: {activeSnapshot.sourceType}
                   </p>
                   <p className="mt-1 text-sm text-slate-500">
-                    Imported {formatDate(details.latestSnapshot.createdAt)}
+                    Imported {formatDate(activeSnapshot.createdAt)}
                   </p>
-                  {details.latestSnapshot.snapshot.metadata.fileName ? (
+                  {activeSnapshot.snapshot.metadata.fileName ? (
                     <p className="mt-1 text-sm text-slate-500">
-                      Figma file {details.latestSnapshot.snapshot.metadata.fileName}
+                      Reference file {activeSnapshot.snapshot.metadata.fileName}
                     </p>
                   ) : null}
-                  {details.latestSnapshot.snapshot.metadata.lastModified ? (
+                  {activeSnapshot.snapshot.metadata.lastModified ? (
                     <p className="mt-1 text-sm text-slate-500">
                       Last modified{" "}
-                      {formatDate(details.latestSnapshot.snapshot.metadata.lastModified)}
+                      {formatDate(activeSnapshot.snapshot.metadata.lastModified)}
                     </p>
                   ) : null}
                 </div>
@@ -243,12 +353,12 @@ export default async function ProjectPage({
                       Tokens
                     </p>
                     <p className="mt-2 text-sm text-slate-400">
-                      {details.latestSnapshot.snapshot.metadata.tokenCount ??
-                        details.latestSnapshot.snapshot.tokens.length}{" "}
+                      {activeSnapshot.snapshot.metadata.tokenCount ??
+                        activeSnapshot.snapshot.tokens.length}{" "}
                       extracted token/style references
                     </p>
                     <ul className="mt-4 space-y-2 text-sm text-slate-200">
-                      {details.latestSnapshot.snapshot.tokens.map((token) => (
+                      {activeSnapshot.snapshot.tokens.map((token) => (
                         <li key={token.name}>
                           {token.name}
                           {token.codeHints?.length ? (
@@ -265,12 +375,12 @@ export default async function ProjectPage({
                       Components
                     </p>
                     <p className="mt-2 text-sm text-slate-400">
-                      {details.latestSnapshot.snapshot.metadata.componentCount ??
-                        details.latestSnapshot.snapshot.components.length}{" "}
-                      extracted Figma components
+                      {activeSnapshot.snapshot.metadata.componentCount ??
+                        activeSnapshot.snapshot.components.length}{" "}
+                      extracted reference components
                     </p>
                     <ul className="mt-4 space-y-3 text-sm text-slate-200">
-                      {details.latestSnapshot.snapshot.components.map((component) => (
+                      {activeSnapshot.snapshot.components.map((component) => (
                         <li key={component.name}>
                           <span className="font-medium text-white">{component.name}</span>
                           <span className="mt-1 block text-slate-500">
@@ -285,8 +395,7 @@ export default async function ProjectPage({
               </div>
             ) : (
               <p className="mt-6 rounded-3xl border border-dashed border-white/10 p-5 text-slate-300">
-                No reference snapshot yet. The normal path is to sync from Figma using the
-                saved file key. Fallback JSON import is still available above if you need it.
+                {snapshotEmptyMessage}
               </p>
             )}
           </Surface>
@@ -297,15 +406,13 @@ export default async function ProjectPage({
               Check the latest implementation
             </h2>
             <p className="mt-3 text-sm leading-7 text-slate-300">
-              Design Memory will sync the latest Figma truth source, inspect the latest open
-              PR in the connected repo, and generate a Fix brief with supporting drift
-              evidence.
+              {auditDescription}
             </p>
             <form action={checkLatestPullRequestAction} className="mt-6 flex flex-wrap items-end gap-4">
               <input type="hidden" name="projectId" value={details.project.id} />
               <button
                 type="submit"
-                disabled={!hasFigmaToken}
+                disabled={!canRunAudit}
                 className="rounded-full bg-white px-5 py-3 font-medium text-slate-950 transition hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Check latest PR

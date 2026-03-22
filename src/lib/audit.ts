@@ -469,10 +469,43 @@ function collectEvidence(text: string, patterns: string[]) {
   return lines.find((entry) => entry.trim())?.trim() ?? "No direct snippet available.";
 }
 
+function toMatchWords(value: string) {
+  return uniqueStrings(
+    value
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .map((part) => part.trim())
+      .filter((part) => part.length > 2)
+      .flatMap((part) => {
+        if (part.endsWith("ies") && part.length > 4) {
+          return [part, `${part.slice(0, -3)}y`];
+        }
+
+        if (part.endsWith("s") && !part.endsWith("ss") && part.length > 3) {
+          return [part, part.slice(0, -1)];
+        }
+
+        return [part];
+      }),
+  );
+}
+
 function hasCandidateMatch(text: string, normalizedText: string, candidates: string[]) {
+  const textWords = new Set(toMatchWords(text));
+
   return candidates.some((candidate) => {
     const normalized = normalizeForMatch(candidate);
-    return text.includes(candidate.toLowerCase()) || (normalized.length > 2 && normalizedText.includes(normalized));
+    if (text.includes(candidate.toLowerCase()) || (normalized.length > 2 && normalizedText.includes(normalized))) {
+      return true;
+    }
+
+    const candidateWords = toMatchWords(candidate);
+    if (candidateWords.length < 2) {
+      return false;
+    }
+
+    const overlap = candidateWords.filter((word) => textWords.has(word));
+    return overlap.length >= 2 && overlap.length >= Math.ceil(candidateWords.length / 2);
   });
 }
 

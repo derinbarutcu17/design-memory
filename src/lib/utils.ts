@@ -93,6 +93,20 @@ export function parseFigmaUrl(url: string) {
   }
 }
 
+export function ensureOptionalUrl(value: string) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    return undefined;
+  }
+
+  try {
+    return new URL(trimmed).toString();
+  } catch {
+    throw new Error("Enter a valid Stitch URL.");
+  }
+}
+
 export function parseGitHubRepoUrl(url: string) {
   try {
     const parsed = new URL(url);

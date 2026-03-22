@@ -50,8 +50,20 @@ export const referenceSnapshotSchema = z.object({
   aliasMap: z.record(z.string(), z.array(z.string())).optional(),
 });
 
-export const createProjectSchema = z.object({
+const baseProjectSchema = z.object({
   name: z.string().min(2),
-  figmaUrl: z.string().url(),
+  referenceProvider: z.enum(["figma", "stitch"]),
+  figmaUrl: z.string().optional(),
+  stitchUrl: z.string().optional(),
   repoUrl: z.string().url(),
+});
+
+export const createProjectSchema = baseProjectSchema.superRefine((value, ctx) => {
+  if (value.referenceProvider === "figma" && !value.figmaUrl?.trim()) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["figmaUrl"],
+      message: "Enter a Figma file URL for Figma-backed projects.",
+    });
+  }
 });

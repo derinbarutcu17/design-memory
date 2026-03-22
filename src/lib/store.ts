@@ -16,30 +16,38 @@ function parseJson<T>(value: string | null): T | null {
 }
 
 function buildDerivedUrls(project: {
+  reference_provider?: "figma" | "stitch" | null;
   repo_owner: string;
   repo_name: string;
   figma_file_key: string;
   repo_url?: string | null;
   figma_url?: string | null;
+  stitch_url?: string | null;
 }) {
   return {
+    referenceProvider: project.reference_provider ?? "figma",
     repoUrl:
       project.repo_url ?? `https://github.com/${project.repo_owner}/${project.repo_name}`,
-    figmaUrl: project.figma_url ?? `https://www.figma.com/design/${project.figma_file_key}`,
+    figmaUrl:
+      project.figma_url ??
+      (project.figma_file_key ? `https://www.figma.com/design/${project.figma_file_key}` : undefined),
+    stitchUrl: project.stitch_url ?? undefined,
   };
 }
 
 export function listProjects(): Project[] {
   const rows = db
     .prepare(
-      `SELECT id, name, figma_url, repo_url, repo_owner, repo_name, figma_file_key, created_at, updated_at
+      `SELECT id, name, reference_provider, figma_url, stitch_url, repo_url, repo_owner, repo_name, figma_file_key, created_at, updated_at
        FROM projects
        ORDER BY updated_at DESC`,
     )
     .all() as Array<{
     id: string;
     name: string;
+    reference_provider: "figma" | "stitch" | null;
     figma_url: string | null;
+    stitch_url: string | null;
     repo_url: string | null;
     repo_owner: string;
     repo_name: string;
@@ -54,7 +62,7 @@ export function listProjects(): Project[] {
     ...buildDerivedUrls(row),
     repoOwner: row.repo_owner,
     repoName: row.repo_name,
-    figmaFileKey: row.figma_file_key,
+    figmaFileKey: row.figma_file_key || undefined,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   }));
@@ -70,25 +78,34 @@ export function createProject(input: Omit<Project, "id" | "createdAt" | "updated
   };
 
   db.prepare(
-    `INSERT INTO projects (id, name, figma_url, repo_url, repo_owner, repo_name, figma_file_key, created_at, updated_at)
-     VALUES (@id, @name, @figmaUrl, @repoUrl, @repoOwner, @repoName, @figmaFileKey, @createdAt, @updatedAt)`,
-  ).run(project);
+    `INSERT INTO projects (id, name, reference_provider, figma_url, stitch_url, repo_url, repo_owner, repo_name, figma_file_key, created_at, updated_at)
+     VALUES (@id, @name, @referenceProvider, @figmaUrl, @stitchUrl, @repoUrl, @repoOwner, @repoName, @figmaFileKey, @createdAt, @updatedAt)`,
+  ).run({
+    ...project,
+    figmaFileKey: project.figmaFileKey ?? "",
+    stitchUrl: project.stitchUrl ?? null,
+  });
 
   return project;
 }
 
 export function updateProject(
   projectId: string,
-  input: Pick<Project, "repoOwner" | "repoName" | "figmaFileKey" | "figmaUrl" | "repoUrl">,
+  input: Pick<
+    Project,
+    "referenceProvider" | "repoOwner" | "repoName" | "figmaFileKey" | "figmaUrl" | "stitchUrl" | "repoUrl"
+  >,
 ) {
   db.prepare(
     `UPDATE projects
-     SET figma_url = @figmaUrl, repo_url = @repoUrl, repo_owner = @repoOwner, repo_name = @repoName, figma_file_key = @figmaFileKey, updated_at = @updatedAt
+     SET reference_provider = @referenceProvider, figma_url = @figmaUrl, stitch_url = @stitchUrl, repo_url = @repoUrl, repo_owner = @repoOwner, repo_name = @repoName, figma_file_key = @figmaFileKey, updated_at = @updatedAt
      WHERE id = @projectId`,
   ).run({
     projectId,
     updatedAt: new Date().toISOString(),
     ...input,
+    figmaFileKey: input.figmaFileKey ?? "",
+    stitchUrl: input.stitchUrl ?? null,
   });
 }
 

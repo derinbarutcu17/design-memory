@@ -61,12 +61,15 @@ export default async function AuditRunPage({
   };
   const fixBrief = generateFixBrief(pseudoPr, issues, reviewMap);
   const checkSummary = generateCheckSummary(pseudoPr, issues, reviewMap);
+  const isStitchReference = auditRun.referenceSnapshotSourceType === "stitch-design-md";
   const referenceSyncLabel =
-    auditRun.referenceSyncMode === "cached"
-      ? "cached Figma snapshot"
-      : auditRun.referenceSyncMode === "live"
-        ? "live Figma sync"
-        : "unknown sync mode";
+    isStitchReference
+      ? "stored Stitch DESIGN.md snapshot"
+      : auditRun.referenceSyncMode === "cached"
+        ? "cached Figma snapshot"
+        : auditRun.referenceSyncMode === "live"
+          ? "live Figma sync"
+          : "unknown sync mode";
 
   return (
     <main className="min-h-screen bg-[linear-gradient(180deg,_#041019,_#020617)] px-6 py-10 text-white">
@@ -124,7 +127,7 @@ export default async function AuditRunPage({
         <Surface>
           <div className="grid gap-4 md:grid-cols-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Last synced from Figma</p>
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Last synced design reference</p>
               <p className="mt-2 text-sm text-slate-200">
                 {projectDetails.latestSnapshot
                   ? formatDate(projectDetails.latestSnapshot.createdAt)

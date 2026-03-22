@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 
 import { analyzeDrift, generateCheckSummary, generateFixBrief } from "@/lib/audit";
 import { FigmaSyncError } from "@/lib/figma/client";
@@ -13,6 +14,7 @@ import {
 } from "@/lib/github";
 import { createProjectSchema, referenceSnapshotSchema } from "@/lib/schema";
 import { sampleReferenceSnapshot } from "@/lib/sample-reference";
+import { normalizeStitchReference } from "@/lib/stitch/normalize";
 import {
   buildInheritedReviews,
   createAuditRun,
@@ -29,7 +31,7 @@ import {
 } from "@/lib/store";
 import { setSecureCredential } from "@/lib/secure-credentials";
 import type { ReviewStatus } from "@/lib/types";
-import { makeId, parseFigmaUrl, parseGitHubRepoUrl } from "@/lib/utils";
+import { ensureOptionalUrl, makeId, parseFigmaUrl, parseGitHubRepoUrl } from "@/lib/utils";
 
 function homeMessageRedirect(status: "success" | "error", message: string) {
   const query = new URLSearchParams({ status, message });
@@ -41,19 +43,33 @@ function projectMessageRedirect(projectId: string, status: "success" | "error", 
   redirect(`/projects/${projectId}?${query.toString()}`);
 }
 
+function rethrowIfRedirectError(error: unknown) {
+  if (isRedirectError(error)) {
+    throw error;
+  }
+}
+
 export async function createProjectAction(formData: FormData) {
   try {
     const parsed = createProjectSchema.parse({
       name: formData.get("name"),
+      referenceProvider: formData.get("referenceProvider"),
       figmaUrl: formData.get("figmaUrl"),
+      stitchUrl: formData.get("stitchUrl"),
       repoUrl: formData.get("repoUrl"),
     });
-    const { figmaFileKey } = parseFigmaUrl(parsed.figmaUrl);
     const { owner, repo } = parseGitHubRepoUrl(parsed.repoUrl);
+    const figmaFileKey =
+      parsed.referenceProvider === "figma" && parsed.figmaUrl
+        ? parseFigmaUrl(parsed.figmaUrl).figmaFileKey
+        : undefined;
+    const stitchUrl = ensureOptionalUrl(parsed.stitchUrl ?? "");
 
     const project = createProject({
       name: parsed.name,
+      referenceProvider: parsed.referenceProvider,
       figmaUrl: parsed.figmaUrl,
+      stitchUrl,
       repoUrl: parsed.repoUrl,
       figmaFileKey,
       repoOwner: owner,
@@ -62,6 +78,7 @@ export async function createProjectAction(formData: FormData) {
     revalidatePath("/");
     redirect(`/projects/${project.id}`);
   } catch (error) {
+    rethrowIfRedirectError(error);
     const message = error instanceof Error ? error.message : "Project creation failed.";
     homeMessageRedirect("error", message);
   }
@@ -70,13 +87,21 @@ export async function createProjectAction(formData: FormData) {
 export async function updateProjectAction(formData: FormData) {
   const projectId = String(formData.get("projectId"));
   try {
+    const referenceProvider = String(formData.get("referenceProvider")) as "figma" | "stitch";
     const rawFigmaUrl = String(formData.get("figmaUrl"));
+    const rawStitchUrl = String(formData.get("stitchUrl"));
     const rawRepoUrl = String(formData.get("repoUrl"));
-    const { figmaFileKey } = parseFigmaUrl(rawFigmaUrl);
     const { owner, repo } = parseGitHubRepoUrl(rawRepoUrl);
+    const figmaFileKey =
+      referenceProvider === "figma" && rawFigmaUrl.trim()
+        ? parseFigmaUrl(rawFigmaUrl).figmaFileKey
+        : undefined;
+    const stitchUrl = ensureOptionalUrl(rawStitchUrl);
 
     updateProject(projectId, {
+      referenceProvider,
       figmaUrl: rawFigmaUrl,
+      stitchUrl,
       repoUrl: rawRepoUrl,
       figmaFileKey,
       repoOwner: owner,
@@ -85,6 +110,7 @@ export async function updateProjectAction(formData: FormData) {
     revalidatePath(`/projects/${projectId}`);
     projectMessageRedirect(projectId, "success", "Connection details updated.");
   } catch (error) {
+    rethrowIfRedirectError(error);
     const message = error instanceof Error ? error.message : "Connection update failed.";
     projectMessageRedirect(projectId, "error", message);
   }
@@ -106,6 +132,7 @@ export async function saveAuthSettingsAction(formData: FormData) {
     revalidatePath("/");
     redirect("/?status=success&message=Auth%20settings%20saved%20locally.");
   } catch (error) {
+    rethrowIfRedirectError(error);
     const message = error instanceof Error ? error.message : "Could not save auth settings.";
     homeMessageRedirect("error", message);
   }
@@ -120,6 +147,7 @@ export async function importReferenceAction(formData: FormData) {
     revalidatePath(`/projects/${projectId}`);
     projectMessageRedirect(projectId, "success", "Fallback reference snapshot imported.");
   } catch (error) {
+    rethrowIfRedirectError(error);
     const message = error instanceof Error ? error.message : "Manual import failed.";
     projectMessageRedirect(projectId, "error", message);
   }
@@ -141,6 +169,10 @@ export async function syncFigmaReferenceAction(formData: FormData) {
   }
 
   try {
+    if (details.project.referenceProvider !== "figma" || !details.project.figmaFileKey) {
+      throw new Error("This project is not configured for Figma sync.");
+    }
+
     const snapshot = await syncReferenceSnapshotFromFigma(details.project.figmaFileKey);
     createReferenceSnapshot(projectId, snapshot);
     revalidatePath(`/projects/${projectId}`);
@@ -150,14 +182,93 @@ export async function syncFigmaReferenceAction(formData: FormData) {
       `Synced ${snapshot.metadata.componentCount ?? 0} components from Figma.`,
     );
   } catch (error) {
+    rethrowIfRedirectError(error);
     const message = error instanceof Error ? error.message : "Figma sync failed.";
     projectMessageRedirect(projectId, "error", message);
   }
 }
 
-async function resolveAuditReferenceSnapshot(projectId: string, figmaFileKey: string) {
+export async function importStitchMarkdownAction(formData: FormData) {
+  const projectId = String(formData.get("projectId"));
+  const details = getProjectDetails(projectId);
+
+  if (!details) {
+    throw new Error("Project not found.");
+  }
+
   try {
-    const snapshot = await syncReferenceSnapshotFromFigma(figmaFileKey);
+    const markdownContent = String(formData.get("markdownContent") ?? "");
+    const snapshot = normalizeStitchReference(markdownContent, {
+      stitchUrl: details.project.stitchUrl,
+    });
+    createReferenceSnapshot(projectId, snapshot);
+    revalidatePath(`/projects/${projectId}`);
+    projectMessageRedirect(
+      projectId,
+      "success",
+      `Imported ${snapshot.metadata.tokenCount ?? 0} tokens from Stitch DESIGN.md.`,
+    );
+  } catch (error) {
+    rethrowIfRedirectError(error);
+    const message = error instanceof Error ? error.message : "Stitch markdown import failed.";
+    projectMessageRedirect(projectId, "error", message);
+  }
+}
+
+export async function uploadStitchMarkdownAction(formData: FormData) {
+  const projectId = String(formData.get("projectId"));
+  const details = getProjectDetails(projectId);
+
+  if (!details) {
+    throw new Error("Project not found.");
+  }
+
+  try {
+    const file = formData.get("designMarkdown");
+    if (!(file instanceof File) || file.size === 0) {
+      throw new Error("Choose a DESIGN.md file to upload.");
+    }
+
+    const snapshot = normalizeStitchReference(await file.text(), {
+      fileName: file.name || "DESIGN.md",
+      stitchUrl: details.project.stitchUrl,
+    });
+    createReferenceSnapshot(projectId, snapshot);
+    revalidatePath(`/projects/${projectId}`);
+    projectMessageRedirect(
+      projectId,
+      "success",
+      `Imported ${snapshot.metadata.tokenCount ?? 0} tokens from ${file.name || "DESIGN.md"}.`,
+    );
+  } catch (error) {
+    rethrowIfRedirectError(error);
+    const message = error instanceof Error ? error.message : "Stitch upload failed.";
+    projectMessageRedirect(projectId, "error", message);
+  }
+}
+
+async function resolveAuditReferenceSnapshot(
+  projectId: string,
+  project: { referenceProvider: "figma" | "stitch"; figmaFileKey?: string },
+) {
+  if (project.referenceProvider === "stitch") {
+    const cachedSnapshot = getLatestSnapshotBySourceType(projectId, "stitch-design-md");
+    if (cachedSnapshot) {
+      return {
+        snapshotRecord: cachedSnapshot,
+        referenceSyncMode: "cached" as const,
+      };
+    }
+
+    throw new Error("Import a Stitch DESIGN.md reference before running a PR audit.");
+  }
+
+  if (!project.figmaFileKey) {
+    throw new Error("This Figma-backed project is missing a Figma file key.");
+  }
+
+  try {
+    const snapshot = await syncReferenceSnapshotFromFigma(project.figmaFileKey);
     return {
       snapshotRecord: createReferenceSnapshot(projectId, snapshot),
       referenceSyncMode: "live" as const,
@@ -190,7 +301,7 @@ async function runAuditForPullRequest(
 
   const latestSnapshotResult = await resolveAuditReferenceSnapshot(
     projectId,
-    details.project.figmaFileKey,
+    details.project,
   );
   const pr = await fetchPullRequest(details.project.repoOwner, details.project.repoName, prNumber);
 
@@ -267,6 +378,7 @@ export async function checkLatestPullRequestAction(formData: FormData) {
 
     await runAuditForPullRequest(projectId, latestOpenPr.number, "auto-latest");
   } catch (error) {
+    rethrowIfRedirectError(error);
     const message =
       error instanceof Error ? error.message : "Could not check the latest pull request.";
     projectMessageRedirect(projectId, "error", message);
@@ -280,6 +392,7 @@ export async function runAuditForSelectedPullRequestAction(formData: FormData) {
   try {
     await runAuditForPullRequest(projectId, prNumber, "manual");
   } catch (error) {
+    rethrowIfRedirectError(error);
     const message = error instanceof Error ? error.message : "Could not run the selected PR.";
     projectMessageRedirect(projectId, "error", message);
   }
@@ -345,6 +458,7 @@ export async function exportGitHubCommentAction(formData: FormData) {
     await postPullRequestComment(details.project.repoOwner, details.project.repoName, auditRun.prNumber, commentBody);
     projectMessageRedirect(details.project.id, "success", "Posted summary and Fix brief to GitHub.");
   } catch (error) {
+    rethrowIfRedirectError(error);
     const message = error instanceof Error ? error.message : "Could not post to GitHub.";
     projectMessageRedirect(details.project.id, "error", message);
   }
