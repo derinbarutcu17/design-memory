@@ -10,11 +10,6 @@
           "cwd": {
             "type": "string",
             "description": "Absolute repository path to audit. Defaults to the current working directory."
-          },
-          "mode": {
-            "type": "string",
-            "enum": ["staged"],
-            "description": "Audit mode. Only staged changes are supported."
           }
         },
         "required": [],

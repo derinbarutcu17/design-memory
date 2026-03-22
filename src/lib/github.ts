@@ -37,6 +37,13 @@ function parseFilePaths(diff: string) {
     .filter((value): value is string => Boolean(value));
 }
 
+function encodeGitHubContentPath(filePath: string) {
+  return filePath
+    .split('/')
+    .map((part) => encodeURIComponent(part))
+    .join('/');
+}
+
 function gh(args: string[], cwd = process.cwd()) {
   return execFileSync('gh', args, {
     cwd,
@@ -59,10 +66,9 @@ function getPullRequestHeadRef(prNumber: number, repoRef: string, cwd: string) {
   return details.headRefOid;
 }
 
-function getPullRequestFileContent(prNumber: number, repoRef: string, filePath: string, cwd: string) {
+function getPullRequestFileContent(headRef: string, repoRef: string, filePath: string, cwd: string) {
   try {
-    const headRef = getPullRequestHeadRef(prNumber, repoRef, cwd);
-    return gh(['api', `repos/${repoRef}/contents/${filePath}`, '-f', `ref=${headRef}`, '--jq', '.content'], cwd)
+    return gh(['api', `repos/${repoRef}/contents/${encodeGitHubContentPath(filePath)}`, '-f', `ref=${headRef}`, '--jq', '.content'], cwd)
       .replace(/\n/g, '')
       .trim();
   } catch {
@@ -87,9 +93,10 @@ export function getPullRequestScan(prNumber: number, cwd = process.cwd(), repo?:
   const prJson = gh(['pr', 'view', String(prNumber), '--repo', repoRef, '--json', 'title,url'], cwd).trim();
   const details = JSON.parse(prJson) as { title: string; url: string };
   const diff = toFileScopedDiff(gh(['pr', 'diff', String(prNumber), '--repo', repoRef], cwd));
+  const headRef = getPullRequestHeadRef(prNumber, repoRef, cwd);
   const files = parseFilePaths(diff).map((filePath) => ({
     path: filePath,
-    content: decodeBase64(getPullRequestFileContent(prNumber, repoRef, filePath, cwd)),
+    content: decodeBase64(getPullRequestFileContent(headRef, repoRef, filePath, cwd)),
   }));
 
   return {

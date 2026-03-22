@@ -59,9 +59,48 @@ test('resolveReferenceSnapshot loads design-md files from config.reference.path'
   assert.equal(snapshot.metadata.source, 'design-md');
   assert.equal(snapshot.metadata.fileName, 'spec.md');
   assert.ok((snapshot.metadata.componentCount ?? 0) > 0);
-  assert.ok((snapshot.metadata.stateCount ?? 0) > 0);
+  assert.equal(snapshot.metadata.stateCount, 0);
   assert.ok((snapshot.metadata.variantCount ?? 0) > 0);
   assert.ok(snapshot.components[0]?.requiredPatterns?.includes('bg-primary'));
+  assert.ok(!snapshot.components[0]?.requiredPatterns?.includes('style={{'));
+  assert.ok(snapshot.components[0]?.disallowedPatterns?.includes('style={{'));
+});
+
+test('resolveReferenceSnapshot only extracts states from explicit state lists', async () => {
+  const cwd = makeTempDir();
+  fs.writeFileSync(path.join(cwd, 'spec.md'), '# Alternate spec\n## Button\nNo disabled state yet.\nStates: hover, focus\n');
+  fs.writeFileSync(
+    path.join(cwd, 'design-memory.config.json'),
+    JSON.stringify({
+      strictness: 'block',
+      stateDir: '.design-memory',
+      reference: {
+        sourceType: 'design-md',
+        path: './spec.md',
+      },
+      include: [],
+      exclude: [],
+      rules: {
+        'color.raw-hex': 'error',
+        'tailwind.arbitrary-spacing': 'error',
+        'tailwind.arbitrary-radius': 'error',
+        'tailwind.arbitrary-font-size': 'warn',
+        'style.inline': 'error',
+        'token.mismatch': 'error',
+        'component.required-pattern': 'error',
+        'component.disallowed-pattern': 'error',
+        'component.variant-drift': 'warn',
+        'component.missing-state': 'warn',
+      },
+      baseline: { mode: 'net-new-only' },
+      llmFallback: { enabled: false, mode: 'explain-only' },
+      ai: { providerPreference: ['local'], maxRetries: 1 },
+      visualProvider: 'none',
+    }),
+  );
+
+  const snapshot = await resolveReferenceSnapshot(cwd);
+  assert.deepEqual(snapshot.components[0]?.states?.map((state) => state.name), ['hover', 'focus']);
 });
 
 test('resolveReferenceSnapshot throws when the configured source file is missing', async () => {

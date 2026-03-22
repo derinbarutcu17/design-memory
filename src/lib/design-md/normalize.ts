@@ -84,31 +84,46 @@ function extractInlineCodes(lines: string[]) {
   return uniqueStrings(lines.flatMap((line) => Array.from(line.matchAll(/`([^`]+)`/g)).map((match) => match[1].trim())));
 }
 
+function extractNamedList(lines: string[], label: string, allowedValues: string[]) {
+  const matches = lines.flatMap((line) => {
+    const match = line.match(new RegExp(`^[-*]?\\s*${label}\\s*:\\s*(.+)$`, 'i'));
+    if (!match) {
+      return [];
+    }
+    return match[1]
+      .split(',')
+      .map((part) => cleanLine(part).toLowerCase())
+      .filter((value) => allowedValues.includes(value));
+  });
+
+  return uniqueStrings(matches);
+}
+
 function extractStates(lines: string[]) {
-  const text = lines.join(' ').toLowerCase();
-  return STATE_WORDS.filter((state) => text.includes(state)).map((name) => ({ name }));
+  return extractNamedList(lines, 'states?', STATE_WORDS).map((name) => ({ name }));
 }
 
 function extractVariants(lines: string[]) {
-  const text = lines.join(' ').toLowerCase();
-  return VARIANT_WORDS.filter((variant) => text.includes(variant)).map((name) => ({ name }));
+  return extractNamedList(lines, 'variants?', VARIANT_WORDS).map((name) => ({ name }));
 }
 
 function extractPatternLines(lines: string[], mode: 'required' | 'disallowed') {
-  const inlineCodes = extractInlineCodes(lines);
   const filtered = lines
-    .map(cleanLine)
-    .filter(Boolean)
-    .filter((line) => {
-      const normalized = line.toLowerCase();
+    .map((line) => ({
+      original: line,
+      cleaned: cleanLine(line),
+    }))
+    .filter((entry) => entry.cleaned.length > 0)
+    .filter((entry) => {
+      const normalized = entry.cleaned.toLowerCase();
       return mode === 'required'
-        ? normalized.includes('must use') || normalized.includes('use ') || normalized.includes('should use') || normalized.includes('required')
+        ? normalized.includes('must use') || normalized.includes('should use') || normalized.includes('required')
         : normalized.includes('do not use') || normalized.includes('avoid ') || normalized.includes('disallow') || normalized.includes('never use');
     });
 
   return uniqueStrings([
-    ...inlineCodes,
-    ...filtered.flatMap((line) => line.match(/\b(?:bg|text|border|ring|rounded|shadow|p|px|py|m|mx|my|gap)-[a-z0-9-:[\]]+/gi) ?? []),
+    ...filtered.flatMap((entry) => Array.from(entry.original.matchAll(/`([^`]+)`/g)).map((match) => match[1].trim())),
+    ...filtered.flatMap((entry) => entry.cleaned.match(/\b(?:bg|text|border|ring|rounded|shadow|p|px|py|m|mx|my|gap)-[a-z0-9-:[\]]+/gi) ?? []),
   ]);
 }
 
