@@ -3,8 +3,7 @@ import path from 'path';
 import { writeDefaultConfig } from '../lib/config';
 import { ensureState } from '../lib/state';
 
-export async function installHook() {
-  const cwd = process.cwd();
+export async function installHook(cwd = process.cwd()) {
   const gitDir = path.join(cwd, '.git');
   const hooksDir = path.join(gitDir, 'hooks');
 

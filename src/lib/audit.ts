@@ -45,6 +45,27 @@ type Mapping = {
   referenceIndex: number;
 };
 
+type TokenMatcher = {
+  token: ReferenceSnapshot['tokens'][number];
+  aliases: string[];
+};
+
+type FileIssueContext = {
+  file: FileDiff;
+  defaultComponentName: string;
+  rawText: string;
+  fullText: string;
+};
+
+type IssueHistoryIndex = {
+  reviews: ReturnType<typeof loadReviews>['reviews'];
+  previousFingerprints: Set<string>;
+  previousIssueKeys: Map<string, string>;
+  historicalIssueKeys: Map<string, string>;
+  historicalFingerprints: Set<string>;
+  baselineFingerprints: Set<string>;
+};
+
 type LlmAuditResponse = {
   explanations?: Array<{
     fingerprint: string;
@@ -191,178 +212,215 @@ function pushIssue(target: DriftIssue[], issue: DriftIssue | null) {
   target.push(issue);
 }
 
-function findDeterministicIssues(snapshot: ReferenceSnapshot, files: FileDiff[], mappings: Mapping[], config: DesignMemoryConfig) {
-  const issues: DriftIssue[] = [];
-  const allowedHexes = new Set(snapshot.tokens.map((token) => token.value?.toLowerCase()).filter(Boolean) as string[]);
-  const tokenMatchers = snapshot.tokens.map((token) => ({
+function buildTokenMatchers(snapshot: ReferenceSnapshot): TokenMatcher[] {
+  return snapshot.tokens.map((token) => ({
     token,
     aliases: uniqueStrings([token.name, ...(token.aliases ?? []), ...(token.codeHints ?? []), ...(snapshot.aliasMap?.[token.name] ?? [])]),
   }));
+}
+
+function detectStyleRuleIssues(
+  issues: DriftIssue[],
+  config: DesignMemoryConfig,
+  ctx: FileIssueContext,
+  allowedHexes: Set<string>,
+) {
+  const rawHexes = Array.from(new Set(ctx.rawText.match(/#(?:[0-9a-fA-F]{3,8})\b/g) ?? []));
+  for (const hex of rawHexes) {
+    if (!allowedHexes.has(hex.toLowerCase())) {
+      pushIssue(issues, createIssue(config, {
+        ruleId: 'color.raw-hex',
+        componentName: ctx.defaultComponentName,
+        filePath: ctx.file.filePath,
+        expected: 'Use approved color tokens from the reference snapshot.',
+        found: hex,
+        evidenceSnippet: ctx.rawText,
+        suggestedAction: `Replace ${hex} with an approved design token or token-backed class.`,
+      }));
+    }
+  }
+
+  for (const line of ctx.file.addedLines) {
+    const spacingMatches = line.match(/\b(?:p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|gap)-\[[^\]]+\]/g) ?? [];
+    for (const match of spacingMatches) {
+      pushIssue(issues, createIssue(config, {
+        ruleId: 'tailwind.arbitrary-spacing',
+        componentName: ctx.defaultComponentName,
+        filePath: ctx.file.filePath,
+        expected: 'Use token-backed spacing classes instead of arbitrary spacing values.',
+        found: match,
+        evidenceSnippet: line,
+        suggestedAction: `Replace ${match} with an approved spacing token/class.`,
+      }));
+    }
+
+    const radiusMatches = line.match(/\brounded(?:-[trbl]{1,2})?-\[[^\]]+\]/g) ?? [];
+    for (const match of radiusMatches) {
+      pushIssue(issues, createIssue(config, {
+        ruleId: 'tailwind.arbitrary-radius',
+        componentName: ctx.defaultComponentName,
+        filePath: ctx.file.filePath,
+        expected: 'Use approved radius classes instead of arbitrary radius values.',
+        found: match,
+        evidenceSnippet: line,
+        suggestedAction: `Replace ${match} with an approved radius token/class.`,
+      }));
+    }
+
+    const fontSizeMatches = line.match(/\btext-\[[^\]]+\]/g) ?? [];
+    for (const match of fontSizeMatches) {
+      pushIssue(issues, createIssue(config, {
+        ruleId: 'tailwind.arbitrary-font-size',
+        componentName: ctx.defaultComponentName,
+        filePath: ctx.file.filePath,
+        expected: 'Use approved typography scale classes instead of arbitrary font-size values.',
+        found: match,
+        evidenceSnippet: line,
+        suggestedAction: `Replace ${match} with an approved typography token/class.`,
+      }));
+    }
+
+    if (/style=\{\{/.test(line)) {
+      pushIssue(issues, createIssue(config, {
+        ruleId: 'style.inline',
+        componentName: ctx.defaultComponentName,
+        filePath: ctx.file.filePath,
+        expected: 'Avoid inline styles in audited UI files.',
+        found: 'style={{ ... }}',
+        evidenceSnippet: line,
+        suggestedAction: 'Move the inline style into approved Tailwind utilities or token-backed classes.',
+      }));
+    }
+  }
+}
+
+function detectComponentContractIssues(
+  issues: DriftIssue[],
+  snapshot: ReferenceSnapshot,
+  config: DesignMemoryConfig,
+  mappings: Mapping[],
+  ctx: FileIssueContext,
+) {
+  for (const mapping of mappings) {
+    const component = snapshot.components[mapping.referenceIndex];
+
+    for (const pattern of component.disallowedPatterns ?? []) {
+      if (ctx.rawText.includes(pattern)) {
+        pushIssue(issues, createIssue(config, {
+          ruleId: 'component.disallowed-pattern',
+          componentName: component.name,
+          filePath: ctx.file.filePath,
+          expected: `Avoid disallowed pattern ${pattern} for ${component.name}.`,
+          found: pattern,
+          evidenceSnippet: ctx.rawText,
+          suggestedAction: `Remove or replace ${pattern} with the approved pattern for ${component.name}.`,
+        }));
+      }
+    }
+
+    for (const pattern of component.requiredPatterns ?? []) {
+      if (ctx.rawText && !ctx.fullText.includes(pattern)) {
+        pushIssue(issues, createIssue(config, {
+          ruleId: 'component.required-pattern',
+          componentName: component.name,
+          filePath: ctx.file.filePath,
+          expected: `Include required pattern ${pattern} for ${component.name} somewhere in the file.`,
+          found: 'Pattern missing from the evaluated file content.',
+          evidenceSnippet: ctx.rawText,
+          suggestedAction: `Add the required pattern ${pattern} or align the component with the reference snapshot.`,
+          confidence: 0.87,
+        }));
+      }
+    }
+
+    for (const state of component.states ?? []) {
+      const statePattern = `${state.name}:`;
+      const hasAnyState = ctx.fullText.includes(statePattern) || ctx.fullText.includes(`data-[state=${state.name}]`) || ctx.fullText.includes(`aria-${state.name}`);
+      const touchedStateRegion = ctx.rawText.length > 0;
+      if (!hasAnyState && touchedStateRegion) {
+        pushIssue(issues, createIssue(config, {
+          ruleId: 'component.missing-state',
+          componentName: component.name,
+          filePath: ctx.file.filePath,
+          expected: `Provide explicit ${state.name} state support for ${component.name}.`,
+          found: `${state.name} state not found in the evaluated file content.`,
+          evidenceSnippet: ctx.rawText,
+          suggestedAction: `Add the ${state.name} state styling/behavior expected by the reference snapshot.`,
+          confidence: 0.82,
+        }));
+      }
+    }
+
+    for (const variant of component.variants ?? []) {
+      const variantName = normalizeForMatch(variant.name);
+      if (variantName && ctx.rawText.toLowerCase().includes('variant') && !normalizeForMatch(ctx.fullText).includes(variantName)) {
+        pushIssue(issues, createIssue(config, {
+          ruleId: 'component.variant-drift',
+          componentName: component.name,
+          filePath: ctx.file.filePath,
+          expected: `Use approved ${component.name} variants from the reference snapshot.`,
+          found: 'Changed code references variants that do not match the approved variant set.',
+          evidenceSnippet: ctx.rawText,
+          suggestedAction: `Align the variant values with the approved ${component.name} variants.`,
+          confidence: 0.74,
+        }));
+      }
+    }
+  }
+}
+
+function detectTokenMismatchIssues(
+  issues: DriftIssue[],
+  config: DesignMemoryConfig,
+  tokenMatchers: TokenMatcher[],
+  snapshot: ReferenceSnapshot,
+  mappings: Mapping[],
+  ctx: FileIssueContext,
+) {
+  for (const mapping of mappings) {
+    const component = snapshot.components[mapping.referenceIndex];
+
+    for (const tokenName of component.tokensUsed ?? []) {
+      const matcher = tokenMatchers.find((entry) => normalizeForMatch(entry.token.name) === normalizeForMatch(tokenName));
+      if (!matcher || matcher.aliases.length === 0) {
+        continue;
+      }
+
+      const matchesAnyAlias = matcher.aliases.some((alias) => normalizeForMatch(ctx.fullText).includes(normalizeForMatch(alias)));
+      const changedAnyTokenishThing = matcher.aliases.some((alias) => normalizeForMatch(ctx.rawText).includes(normalizeForMatch(alias))) || /(bg-|text-|border-|ring-|rounded-|shadow-|#)/.test(ctx.rawText);
+      if (!matchesAnyAlias && changedAnyTokenishThing) {
+        pushIssue(issues, createIssue(config, {
+          ruleId: 'token.mismatch',
+          componentName: component.name,
+          filePath: ctx.file.filePath,
+          expected: `Use approved token ${matcher.token.name} for ${component.name}.`,
+          found: 'Changed code does not reference any approved token aliases or code hints.',
+          evidenceSnippet: ctx.rawText,
+          suggestedAction: `Replace hardcoded values with ${matcher.token.name} or one of its approved aliases.`,
+          confidence: 0.8,
+        }));
+      }
+    }
+  }
+}
+
+function findDeterministicIssues(snapshot: ReferenceSnapshot, files: FileDiff[], mappings: Mapping[], config: DesignMemoryConfig) {
+  const issues: DriftIssue[] = [];
+  const allowedHexes = new Set(snapshot.tokens.map((token) => token.value?.toLowerCase()).filter(Boolean) as string[]);
+  const tokenMatchers = buildTokenMatchers(snapshot);
 
   for (const file of files) {
     const fileMappings = mappings.filter((mapping) => mapping.filePath === file.filePath);
-    const defaultComponentName = fileMappings[0]?.componentName ?? (toPascalCase(getFileStem(file.filePath)) || 'UnknownComponent');
-    const rawText = file.addedLines.join('\n');
-    const fullText = file.fullContent ?? rawText;
+    const ctx: FileIssueContext = {
+      file,
+      defaultComponentName: fileMappings[0]?.componentName ?? (toPascalCase(getFileStem(file.filePath)) || 'UnknownComponent'),
+      rawText: file.addedLines.join('\n'),
+      fullText: file.fullContent ?? file.addedLines.join('\n'),
+    };
 
-    const rawHexes = Array.from(new Set(rawText.match(/#(?:[0-9a-fA-F]{3,8})\b/g) ?? []));
-    for (const hex of rawHexes) {
-      if (!allowedHexes.has(hex.toLowerCase())) {
-        pushIssue(issues, createIssue(config, {
-          ruleId: 'color.raw-hex',
-          componentName: defaultComponentName,
-          filePath: file.filePath,
-          expected: 'Use approved color tokens from the reference snapshot.',
-          found: hex,
-          evidenceSnippet: rawText,
-          suggestedAction: `Replace ${hex} with an approved design token or token-backed class.`,
-        }));
-      }
-    }
-
-    for (const line of file.addedLines) {
-      const spacingMatches = line.match(/\b(?:p|px|py|pt|pr|pb|pl|m|mx|my|mt|mr|mb|ml|gap)-\[[^\]]+\]/g) ?? [];
-      for (const match of spacingMatches) {
-        pushIssue(issues, createIssue(config, {
-          ruleId: 'tailwind.arbitrary-spacing',
-          componentName: defaultComponentName,
-          filePath: file.filePath,
-          expected: 'Use token-backed spacing classes instead of arbitrary spacing values.',
-          found: match,
-          evidenceSnippet: line,
-          suggestedAction: `Replace ${match} with an approved spacing token/class.`,
-        }));
-      }
-
-      const radiusMatches = line.match(/\brounded(?:-[trbl]{1,2})?-\[[^\]]+\]/g) ?? [];
-      for (const match of radiusMatches) {
-        pushIssue(issues, createIssue(config, {
-          ruleId: 'tailwind.arbitrary-radius',
-          componentName: defaultComponentName,
-          filePath: file.filePath,
-          expected: 'Use approved radius classes instead of arbitrary radius values.',
-          found: match,
-          evidenceSnippet: line,
-          suggestedAction: `Replace ${match} with an approved radius token/class.`,
-        }));
-      }
-
-      const fontSizeMatches = line.match(/\btext-\[[^\]]+\]/g) ?? [];
-      for (const match of fontSizeMatches) {
-        pushIssue(issues, createIssue(config, {
-          ruleId: 'tailwind.arbitrary-font-size',
-          componentName: defaultComponentName,
-          filePath: file.filePath,
-          expected: 'Use approved typography scale classes instead of arbitrary font-size values.',
-          found: match,
-          evidenceSnippet: line,
-          suggestedAction: `Replace ${match} with an approved typography token/class.`,
-        }));
-      }
-
-      if (/style=\{\{/.test(line)) {
-        pushIssue(issues, createIssue(config, {
-          ruleId: 'style.inline',
-          componentName: defaultComponentName,
-          filePath: file.filePath,
-          expected: 'Avoid inline styles in audited UI files.',
-          found: 'style={{ ... }}',
-          evidenceSnippet: line,
-          suggestedAction: 'Move the inline style into approved Tailwind utilities or token-backed classes.',
-        }));
-      }
-    }
-
-    for (const mapping of fileMappings) {
-      const component = snapshot.components[mapping.referenceIndex];
-      const joinedLines = rawText;
-      const evaluatedText = fullText;
-
-      for (const pattern of component.disallowedPatterns ?? []) {
-        if (joinedLines.includes(pattern)) {
-          pushIssue(issues, createIssue(config, {
-            ruleId: 'component.disallowed-pattern',
-            componentName: component.name,
-            filePath: file.filePath,
-            expected: `Avoid disallowed pattern ${pattern} for ${component.name}.`,
-            found: pattern,
-            evidenceSnippet: joinedLines,
-            suggestedAction: `Remove or replace ${pattern} with the approved pattern for ${component.name}.`,
-          }));
-        }
-      }
-
-      for (const pattern of component.requiredPatterns ?? []) {
-        if (joinedLines && !evaluatedText.includes(pattern)) {
-          pushIssue(issues, createIssue(config, {
-            ruleId: 'component.required-pattern',
-            componentName: component.name,
-            filePath: file.filePath,
-            expected: `Include required pattern ${pattern} for ${component.name} somewhere in the file.`,
-            found: 'Pattern missing from the evaluated file content.',
-            evidenceSnippet: joinedLines,
-            suggestedAction: `Add the required pattern ${pattern} or align the component with the reference snapshot.`,
-            confidence: 0.87,
-          }));
-        }
-      }
-
-      for (const state of component.states ?? []) {
-        const statePattern = `${state.name}:`;
-        const hasAnyState = evaluatedText.includes(statePattern) || evaluatedText.includes(`data-[state=${state.name}]`) || evaluatedText.includes(`aria-${state.name}`);
-        const touchedStateRegion = joinedLines.length > 0;
-        if (!hasAnyState && touchedStateRegion) {
-          pushIssue(issues, createIssue(config, {
-            ruleId: 'component.missing-state',
-            componentName: component.name,
-            filePath: file.filePath,
-            expected: `Provide explicit ${state.name} state support for ${component.name}.`,
-            found: `${state.name} state not found in the evaluated file content.`,
-            evidenceSnippet: joinedLines,
-            suggestedAction: `Add the ${state.name} state styling/behavior expected by the reference snapshot.`,
-            confidence: 0.82,
-          }));
-        }
-      }
-
-      for (const variant of component.variants ?? []) {
-        const variantName = normalizeForMatch(variant.name);
-        if (variantName && joinedLines.toLowerCase().includes('variant') && !normalizeForMatch(evaluatedText).includes(variantName)) {
-          pushIssue(issues, createIssue(config, {
-            ruleId: 'component.variant-drift',
-            componentName: component.name,
-            filePath: file.filePath,
-            expected: `Use approved ${component.name} variants from the reference snapshot.`,
-            found: 'Changed code references variants that do not match the approved variant set.',
-            evidenceSnippet: joinedLines,
-            suggestedAction: `Align the variant values with the approved ${component.name} variants.`,
-            confidence: 0.74,
-          }));
-        }
-      }
-
-      for (const tokenName of component.tokensUsed ?? []) {
-        const matcher = tokenMatchers.find((entry) => normalizeForMatch(entry.token.name) === normalizeForMatch(tokenName));
-        if (!matcher || matcher.aliases.length === 0) {
-          continue;
-        }
-
-        const matchesAnyAlias = matcher.aliases.some((alias) => normalizeForMatch(evaluatedText).includes(normalizeForMatch(alias)));
-        const changedAnyTokenishThing = matcher.aliases.some((alias) => normalizeForMatch(joinedLines).includes(normalizeForMatch(alias))) || /(bg-|text-|border-|ring-|rounded-|shadow-|#)/.test(joinedLines);
-        if (!matchesAnyAlias && changedAnyTokenishThing) {
-          pushIssue(issues, createIssue(config, {
-            ruleId: 'token.mismatch',
-            componentName: component.name,
-            filePath: file.filePath,
-            expected: `Use approved token ${matcher.token.name} for ${component.name}.`,
-            found: 'Changed code does not reference any approved token aliases or code hints.',
-            evidenceSnippet: joinedLines,
-            suggestedAction: `Replace hardcoded values with ${matcher.token.name} or one of its approved aliases.`,
-            confidence: 0.8,
-          }));
-        }
-      }
-    }
+    detectStyleRuleIssues(issues, config, ctx, allowedHexes);
+    detectComponentContractIssues(issues, snapshot, config, fileMappings, ctx);
+    detectTokenMismatchIssues(issues, config, tokenMatchers, snapshot, fileMappings, ctx);
   }
 
   return issues;
@@ -403,45 +461,59 @@ function parseExplainOnlyResponse(response: string): LlmAuditResponse {
   };
 }
 
-function applyReviewAndBaselineState(issues: DriftIssue[], cwd: string) {
+function buildIssueHistoryIndex(cwd: string): IssueHistoryIndex {
   const reviews = loadReviews(cwd).reviews;
   const baseline = loadBaseline(cwd);
   const previousRun = loadLatestRun(cwd);
   const runHistory = loadRunHistory(cwd);
-  const previousFingerprints = new Set(previousRun?.issues.filter((issue) => ['new', 'remaining', 'reopened', 'intentional', 'ignored'].includes(issue.status)).map((issue) => issue.fingerprint) ?? []);
-  const previousIssueKeys = new Map((previousRun?.issues ?? []).map((issue) => [getIssueKey(issue), issue.fingerprint]));
-  const historicalIssueKeys = new Map(
+  return {
+    reviews,
+    previousFingerprints: new Set(previousRun?.issues.filter((issue) => ['new', 'remaining', 'reopened', 'intentional', 'ignored'].includes(issue.status)).map((issue) => issue.fingerprint) ?? []),
+    previousIssueKeys: new Map((previousRun?.issues ?? []).map((issue) => [getIssueKey(issue), issue.fingerprint])),
+    historicalIssueKeys: new Map(
     runHistory
       .flatMap((run) => run.issues)
       .map((issue) => [getIssueKey(issue), issue.fingerprint] as const),
-  );
-  const historicalFingerprints = new Set(runHistory.flatMap((run) => run.issues.map((issue) => issue.fingerprint)));
-  const baselineFingerprints = new Set(Object.keys(baseline?.acceptedFingerprints ?? {}));
+    ),
+    historicalFingerprints: new Set(runHistory.flatMap((run) => run.issues.map((issue) => issue.fingerprint))),
+    baselineFingerprints: new Set(Object.keys(baseline?.acceptedFingerprints ?? {})),
+  };
+}
 
-  return issues.map((issue) => {
-    const review = reviews[issue.fingerprint];
-    if (review?.status === 'intentional') {
-      return { ...issue, status: 'intentional' as const };
-    }
-    if (review?.status === 'ignore') {
-      return { ...issue, status: 'ignored' as const };
-    }
-    const previousFingerprintForKey = previousIssueKeys.get(getIssueKey(issue));
-    if (previousFingerprintForKey && previousFingerprintForKey !== issue.fingerprint) {
-      return { ...issue, status: 'reopened' as const };
-    }
-    if (historicalFingerprints.has(issue.fingerprint) && !previousFingerprints.has(issue.fingerprint)) {
-      return { ...issue, status: 'reopened' as const };
-    }
-    const historicalFingerprintForKey = historicalIssueKeys.get(getIssueKey(issue));
-    if (historicalFingerprintForKey && !previousFingerprints.has(issue.fingerprint) && historicalFingerprintForKey !== issue.fingerprint) {
-      return { ...issue, status: 'reopened' as const };
-    }
-    if (previousFingerprints.has(issue.fingerprint) || baselineFingerprints.has(issue.fingerprint)) {
-      return { ...issue, status: 'remaining' as const };
-    }
-    return { ...issue, status: 'new' as const };
-  });
+function deriveIssueStatus(issue: DriftIssue, index: IssueHistoryIndex): DriftIssue['status'] {
+  const review = index.reviews[issue.fingerprint];
+  if (review?.status === 'intentional') {
+    return 'intentional';
+  }
+  if (review?.status === 'ignore') {
+    return 'ignored';
+  }
+
+  const issueKey = getIssueKey(issue);
+  const previousFingerprintForKey = index.previousIssueKeys.get(issueKey);
+  if (previousFingerprintForKey && previousFingerprintForKey !== issue.fingerprint) {
+    return 'reopened';
+  }
+  if (index.historicalFingerprints.has(issue.fingerprint) && !index.previousFingerprints.has(issue.fingerprint)) {
+    return 'reopened';
+  }
+
+  const historicalFingerprintForKey = index.historicalIssueKeys.get(issueKey);
+  if (historicalFingerprintForKey && !index.previousFingerprints.has(issue.fingerprint) && historicalFingerprintForKey !== issue.fingerprint) {
+    return 'reopened';
+  }
+  if (index.previousFingerprints.has(issue.fingerprint) || index.baselineFingerprints.has(issue.fingerprint)) {
+    return 'remaining';
+  }
+  return 'new';
+}
+
+function applyReviewAndBaselineState(issues: DriftIssue[], cwd: string) {
+  const historyIndex = buildIssueHistoryIndex(cwd);
+  return issues.map((issue) => ({
+    ...issue,
+    status: deriveIssueStatus(issue, historyIndex),
+  }));
 }
 
 function computeComparison(current: DriftIssue[], previous: AuditRun | null) {

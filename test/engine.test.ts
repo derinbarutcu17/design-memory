@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import { detectAvailableBrain, promptBrain } from '../src/lib/engine';
+import { makeTempDir, writeConfig } from './helpers';
 
 test('detectAvailableBrain prefers local providers before API keys', async () => {
   const oldOpenAI = process.env.OPENAI_API_KEY;
@@ -29,36 +32,13 @@ test('detectAvailableBrain prefers local providers before API keys', async () =>
 });
 
 test('detectAvailableBrain respects config provider preference ordering', async () => {
-  const fs = await import('node:fs');
-  const os = await import('node:os');
-  const path = await import('node:path');
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'design-memory-engine-'));
-  fs.writeFileSync(
-    path.join(cwd, 'design-memory.config.json'),
-    JSON.stringify({
-      strictness: 'warn',
-      stateDir: '.design-memory',
-      reference: { sourceType: 'design-md', path: './DESIGN.md' },
-      include: [],
-      exclude: [],
-      rules: {
-        'color.raw-hex': 'error',
-        'tailwind.arbitrary-spacing': 'error',
-        'tailwind.arbitrary-radius': 'error',
-        'tailwind.arbitrary-font-size': 'warn',
-        'style.inline': 'error',
-        'token.mismatch': 'error',
-        'component.required-pattern': 'error',
-        'component.disallowed-pattern': 'error',
-        'component.variant-drift': 'warn',
-        'component.missing-state': 'warn',
-      },
-      baseline: { mode: 'net-new-only' },
-      llmFallback: { enabled: false, mode: 'explain-only' },
-      ai: { providerPreference: ['openai', 'anthropic'], maxRetries: 1 },
-      visualProvider: 'none',
-    }),
-  );
+  const cwd = makeTempDir('design-memory-engine-');
+  writeConfig(cwd, {
+    strictness: 'warn',
+    include: [],
+    exclude: [],
+    ai: { providerPreference: ['openai', 'anthropic'] },
+  });
 
   const previous = process.cwd();
   const oldOpenAI = process.env.OPENAI_API_KEY;
@@ -78,68 +58,25 @@ test('detectAvailableBrain respects config provider preference ordering', async 
 });
 
 test('detectAvailableBrain uses the provided cwd instead of ambient process cwd', async () => {
-  const fs = await import('node:fs');
-  const os = await import('node:os');
-  const path = await import('node:path');
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'design-memory-engine-cwd-'));
+  const workspace = makeTempDir('design-memory-engine-cwd-');
   const targetCwd = path.join(workspace, 'target');
   const ambientCwd = path.join(workspace, 'ambient');
   fs.mkdirSync(targetCwd, { recursive: true });
   fs.mkdirSync(ambientCwd, { recursive: true });
 
-  fs.writeFileSync(
-    path.join(targetCwd, 'design-memory.config.json'),
-    JSON.stringify({
-      strictness: 'warn',
-      stateDir: '.design-memory',
-      reference: { sourceType: 'design-md', path: './DESIGN.md', strictDesignMd: false },
-      include: [],
-      exclude: [],
-      rules: {
-        'color.raw-hex': 'error',
-        'tailwind.arbitrary-spacing': 'error',
-        'tailwind.arbitrary-radius': 'error',
-        'tailwind.arbitrary-font-size': 'warn',
-        'style.inline': 'error',
-        'token.mismatch': 'error',
-        'component.required-pattern': 'error',
-        'component.disallowed-pattern': 'error',
-        'component.variant-drift': 'warn',
-        'component.missing-state': 'warn',
-      },
-      baseline: { mode: 'net-new-only' },
-      llmFallback: { enabled: false, mode: 'explain-only' },
-      ai: { providerPreference: ['anthropic', 'openai'], maxRetries: 1 },
-      visualProvider: 'none',
-    }),
-  );
+  writeConfig(targetCwd, {
+    strictness: 'warn',
+    include: [],
+    exclude: [],
+    ai: { providerPreference: ['anthropic', 'openai'] },
+  });
 
-  fs.writeFileSync(
-    path.join(ambientCwd, 'design-memory.config.json'),
-    JSON.stringify({
-      strictness: 'warn',
-      stateDir: '.design-memory',
-      reference: { sourceType: 'design-md', path: './DESIGN.md', strictDesignMd: false },
-      include: [],
-      exclude: [],
-      rules: {
-        'color.raw-hex': 'error',
-        'tailwind.arbitrary-spacing': 'error',
-        'tailwind.arbitrary-radius': 'error',
-        'tailwind.arbitrary-font-size': 'warn',
-        'style.inline': 'error',
-        'token.mismatch': 'error',
-        'component.required-pattern': 'error',
-        'component.disallowed-pattern': 'error',
-        'component.variant-drift': 'warn',
-        'component.missing-state': 'warn',
-      },
-      baseline: { mode: 'net-new-only' },
-      llmFallback: { enabled: false, mode: 'explain-only' },
-      ai: { providerPreference: ['openai', 'anthropic'], maxRetries: 1 },
-      visualProvider: 'none',
-    }),
-  );
+  writeConfig(ambientCwd, {
+    strictness: 'warn',
+    include: [],
+    exclude: [],
+    ai: { providerPreference: ['openai', 'anthropic'] },
+  });
 
   const previous = process.cwd();
   const oldOpenAI = process.env.OPENAI_API_KEY;

@@ -5,6 +5,7 @@ import type {
   FigmaNode,
 } from "./fetch-file";
 import type { ComponentReference, ReferenceToken } from "../types";
+import { DESIGN_POLICY_DISALLOWED_PATTERNS } from "../policy";
 import { generateNameCandidates, toKebabCase, uniqueStrings } from "../utils";
 
 const STATE_WORDS = [
@@ -203,7 +204,7 @@ export function extractComponentReferences(
       states,
       tokensUsed: [],
       requiredPatterns: [],
-      disallowedPatterns: ["bg-[#", "text-[#", "border-[#", "style={{"],
+      disallowedPatterns: [...DESIGN_POLICY_DISALLOWED_PATTERNS],
       sourceNodeId: meta.node_id,
     });
   };
@@ -241,7 +242,7 @@ export function extractComponentReferences(
       states,
       tokensUsed,
       requiredPatterns: buildRequiredPatterns(tokensUsed, tokenIndex),
-      disallowedPatterns: ["bg-[#", "text-[#", "border-[#", "style={{"],
+      disallowedPatterns: [...DESIGN_POLICY_DISALLOWED_PATTERNS],
       sourceNodeId: node.id,
     };
 

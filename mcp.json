@@ -9,10 +9,10 @@
         "properties": {
           "cwd": {
             "type": "string",
-            "description": "Absolute repository path to audit. Defaults to the current working directory."
+            "description": "Absolute repository path to audit."
           }
         },
-        "required": [],
+        "required": ["cwd"],
         "additionalProperties": false
       },
       "execution": {

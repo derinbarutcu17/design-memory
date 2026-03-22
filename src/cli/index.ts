@@ -38,13 +38,7 @@ export const initCommand = program
   .option('--cwd <path>', 'Repository path to initialize')
   .action(async ({ cwd }: { cwd?: string }) => {
     try {
-      const previous = process.cwd();
-      process.chdir(resolveCwd(cwd));
-      try {
-        await installHook();
-      } finally {
-        process.chdir(previous);
-      }
+      await installHook(resolveCwd(cwd));
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
       process.exit(1);
@@ -74,13 +68,7 @@ export const ghostCommand = program
   .option('--cwd <path>', 'Repository path to update')
   .action(async ({ cwd }: { cwd?: string }) => {
     try {
-      const previous = process.cwd();
-      process.chdir(resolveCwd(cwd));
-      try {
-        await ghostConfig();
-      } finally {
-        process.chdir(previous);
-      }
+      await ghostConfig(resolveCwd(cwd));
     } catch (error) {
       console.error(error instanceof Error ? error.message : String(error));
       process.exit(1);

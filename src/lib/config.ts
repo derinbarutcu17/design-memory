@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { z } from 'zod';
+import { DEFAULT_PROVIDER_PREFERENCE } from './policy';
 
 const ruleSeveritySchema = z.enum(['error', 'warn', 'ignore']);
 
@@ -57,10 +58,10 @@ export const designMemoryConfigSchema = z.object({
     mode: 'explain-only',
   }),
   ai: z.object({
-    providerPreference: z.array(z.enum(['local', 'anthropic', 'openai'])).default(['local', 'anthropic', 'openai']),
+    providerPreference: z.array(z.enum(['local', 'anthropic', 'openai'])).default([...DEFAULT_PROVIDER_PREFERENCE]),
     maxRetries: z.number().int().min(0).max(3).default(1),
   }).default({
-    providerPreference: ['local', 'anthropic', 'openai'],
+    providerPreference: [...DEFAULT_PROVIDER_PREFERENCE],
     maxRetries: 1,
   }),
   visualProvider: z.enum(['none', 'storybook', 'playwright']).default('none'),
@@ -103,7 +104,7 @@ export const DEFAULT_CONFIG: DesignMemoryConfig = {
     mode: 'explain-only',
   },
   ai: {
-    providerPreference: ['local', 'anthropic', 'openai'],
+    providerPreference: [...DEFAULT_PROVIDER_PREFERENCE],
     maxRetries: 1,
   },
   visualProvider: 'none',

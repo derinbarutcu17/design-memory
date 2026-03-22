@@ -1,84 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 
 import { buildAuditPrompt, compareRuns, reviewFinding, runAudit } from '../src/lib/audit';
-import { saveReferenceSnapshot } from '../src/lib/state';
-import type { ReferenceSnapshot } from '../src/lib/types';
-
-function makeTempDir() {
-  return fs.mkdtempSync(path.join(os.tmpdir(), 'design-memory-audit-'));
-}
-
-function writeConfig(cwd: string, overrides: Record<string, unknown> = {}) {
-  fs.writeFileSync(path.join(cwd, 'design-memory.config.json'), JSON.stringify({
-    strictness: 'block',
-    stateDir: '.design-memory',
-    reference: {
-      sourceType: 'design-md',
-      path: './DESIGN.md',
-    },
-    include: [],
-    exclude: [],
-    rules: {
-      'color.raw-hex': 'error',
-      'tailwind.arbitrary-spacing': 'error',
-      'tailwind.arbitrary-radius': 'error',
-      'tailwind.arbitrary-font-size': 'warn',
-      'style.inline': 'error',
-      'token.mismatch': 'error',
-      'component.required-pattern': 'error',
-      'component.disallowed-pattern': 'error',
-      'component.variant-drift': 'warn',
-      'component.missing-state': 'warn',
-    },
-    baseline: { mode: 'net-new-only' },
-    llmFallback: { enabled: false, mode: 'explain-only' },
-    ai: { providerPreference: ['local'], maxRetries: 1 },
-    visualProvider: 'none',
-    ...overrides,
-  }));
-}
-
-function writeSnapshot(cwd: string) {
-  const snapshot: ReferenceSnapshot = {
-    metadata: {
-      source: 'stitch-design-md',
-      versionLabel: 'Test snapshot',
-      importedAt: new Date().toISOString(),
-      tokenCount: 1,
-      componentCount: 1,
-    },
-    tokens: [
-      {
-        name: 'color.button.primary',
-        kind: 'color',
-        value: '#00ff00',
-        aliases: ['primary', 'button-primary'],
-        codeHints: ['bg-primary', 'text-primary'],
-      },
-    ],
-    components: [
-      {
-        name: 'Button',
-        codeMatches: ['Button'],
-        aliases: ['Button'],
-        requiredPatterns: ['bg-primary'],
-        disallowedPatterns: ['style={{'],
-        states: [{ name: 'hover' }],
-        variants: [{ name: 'primary' }],
-        tokensUsed: ['color.button.primary'],
-      },
-    ],
-    aliasMap: {
-      'color.button.primary': ['primary', 'bg-primary', 'text-primary'],
-    },
-  };
-
-  saveReferenceSnapshot(snapshot, cwd);
-}
+import { makeTempDir, writeConfig, writeSnapshot } from './helpers';
 
 test('buildAuditPrompt contains deterministic facts contract', () => {
   const prompt = buildAuditPrompt(

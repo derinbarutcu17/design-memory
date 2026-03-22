@@ -1,3 +1,6 @@
+import { readConfig } from './config';
+import { DEFAULT_PROVIDER_PREFERENCE } from './policy';
+
 export type BrainProvider = 'ollama' | 'lm-studio' | 'openai' | 'anthropic';
 
 export interface BrainConfig {
@@ -11,20 +14,12 @@ type FetchLike = typeof fetch;
 
 function readProviderPreference(cwd = process.cwd()) {
   try {
-    const configPath = `${cwd}/design-memory.config.json`;
-    const fs = require('node:fs') as typeof import('node:fs');
-    if (!fs.existsSync(configPath)) {
-      return ['local', 'anthropic', 'openai'] as const;
-    }
-
-    const raw = JSON.parse(fs.readFileSync(configPath, 'utf-8')) as {
-      ai?: { providerPreference?: Array<'local' | 'anthropic' | 'openai'> };
-    };
-    return raw.ai?.providerPreference?.length
-      ? raw.ai.providerPreference
-      : (['local', 'anthropic', 'openai'] as const);
+    const config = readConfig(cwd);
+    return config.ai.providerPreference.length
+      ? config.ai.providerPreference
+      : [...DEFAULT_PROVIDER_PREFERENCE];
   } catch {
-    return ['local', 'anthropic', 'openai'] as const;
+    return [...DEFAULT_PROVIDER_PREFERENCE];
   }
 }
 

@@ -1,8 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 
-export async function ghostConfig() {
-  const cwd = process.cwd();
+export async function ghostConfig(cwd = process.cwd()) {
   const rulesFiles = [
     path.join(cwd, '.cursorrules'),
     path.join(cwd, '.windsurfrules'),

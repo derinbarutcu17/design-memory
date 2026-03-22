@@ -1,20 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { execFileSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
-function makeRepoRoot() {
-  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), 'design-memory-cli-flags-'));
-  fs.mkdirSync(path.join(cwd, '.git', 'hooks'), { recursive: true });
-  return cwd;
-}
+import { makeRepoRoot } from './helpers';
+
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
 test('cli init supports --cwd', () => {
   const cwd = makeRepoRoot();
   execFileSync('node', ['dist/cli/index.js', 'init', '--cwd', cwd], {
-    cwd: '/Users/derin/Desktop/CODING/design-memory',
+    cwd: repoRoot,
     stdio: 'ignore',
   });
 
@@ -51,7 +49,7 @@ test('cli compare supports --cwd', () => {
   );
 
   const output = execFileSync('node', ['dist/cli/index.js', 'compare', '--cwd', cwd, '--json'], {
-    cwd: '/Users/derin/Desktop/CODING/design-memory',
+    cwd: repoRoot,
     encoding: 'utf-8',
   });
 
